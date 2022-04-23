@@ -4,7 +4,7 @@ PROJECT(XRiskJudge)
 set(CMAKE_CXX_FLAGS "-fPIC")
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
-SET(AppVersion 0.2.0)
+SET(AppVersion 0.3.0)
 SET(XRiskJudge_Version ${PROJECT_NAME}_${AppVersion})
 
 # 默认输出debug版

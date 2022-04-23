@@ -40,6 +40,19 @@ protected:
     void HandleOrderStatus(const Message::PackMessage& msg);
     void HandleOrderRequest(Message::PackMessage& msg);
     void HandleActionRequest(Message::PackMessage& msg);
+    bool Check(Message::PackMessage& msg);
+    // 流速控制检查
+    bool FlowLimited(Message::PackMessage& msg);
+    // 账户锁定检查
+    bool AccountLocked(Message::PackMessage& msg);
+    // 自成交检查
+    bool SelfMatched(Message::PackMessage& msg);
+    // 撤单限制检查
+    bool CancelLimited(Message::PackMessage& msg);
+    // 打印风控检查前后报单请求的状态
+    void PrintOrderRequest(const Message::TOrderRequest& req, const std::string& op);
+    // 打印风控检查前后撤单请求的状态
+    void PrintActionRequest(const Message::TActionRequest& req, const std::string& op);
 public:
     static Utils::RingBuffer<Message::PackMessage> m_RiskResponseQueue;
 private:
@@ -53,6 +66,8 @@ private:
     std::unordered_map<std::string, int> m_OrderCancelledCounterMap;// OrderRef, Cancelled Count
     static std::unordered_map<std::string, Message::TRiskReport> m_TickerCancelledCounterMap;// Ticker, TRiskReport
     static XRiskLimit m_XRiskLimit;
+    std::unordered_map<std::string, int> m_AccountFlowLimitedMap;// Account, flow counter
+    static std::unordered_map<std::string, Message::TRiskReport> m_AccountLockedStatusMap;// Account, TRiskReport
 };
 
 

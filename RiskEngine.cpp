@@ -50,10 +50,19 @@ void RiskEngine::LoadConfig(const std::string& yml)
     QueryLockedAccount();
 }
 
+void RiskEngine::SetCommand(const std::string& cmd)
+{
+    m_Command = cmd;
+    Utils::gLogger->Log->info("RiskEngine::SetCommand cmd:{}", m_Command);
+}
+
 void RiskEngine::Start()
 {
     RegisterServer(m_XRiskJudgeConfig.ServerIP.c_str(), m_XRiskJudgeConfig.ServerPort);
     RegisterClient(m_XRiskJudgeConfig.XWatcherIP.c_str(), m_XRiskJudgeConfig.XWatcherPort);
+
+    // Update App Status
+    InitAppStatus();
     
     m_RequestThread = new std::thread(&RiskEngine::HandleRequestFunc, this);
     m_ResponseThread = new std::thread(&RiskEngine::HandleResponseFunc, this);
@@ -1184,4 +1193,56 @@ bool RiskEngine::ParseUpdateRiskLimitCommand(const std::string& cmd, std::string
         Utils::gLogger->Log->warn("RiskEngine::ParseUpdateRiskLimitCommand invalid command, {}", cmd.c_str());
     }
     return ret;
+}
+
+void RiskEngine::InitAppStatus()
+{
+    Message::PackMessage message;
+    message.MessageType = Message::EMessageType::EAppStatus;
+    RiskEngine::UpdateAppStatus(m_Command, message.AppStatus);
+    m_HPPackClient->SendData((const unsigned char*)&message, sizeof(message));
+}
+
+void RiskEngine::UpdateAppStatus(const std::string& cmd, Message::TAppStatus& AppStatus)
+{
+    std::vector<std::string> ItemVec;
+    Utils::Split(cmd, " ", ItemVec);
+    std::string Account;
+    for(int i = 0; i < ItemVec.size(); i++)
+    {
+        if(Utils::equalWith(ItemVec.at(i), "-a"))
+        {
+            Account = ItemVec.at(i + 1);
+            break;
+        }
+    }
+    strncpy(AppStatus.Account, Account.c_str(), sizeof(AppStatus.Account));
+
+    std::vector<std::string> Vec;
+    Utils::Split(ItemVec.at(0), "/", Vec);
+    std::string AppName = Vec.at(Vec.size() - 1);
+    strncpy(AppStatus.AppName, AppName.c_str(), sizeof(AppStatus.AppName));
+    AppStatus.PID = getpid();
+    strncpy(AppStatus.Status, "Start", sizeof(AppStatus.Status));
+
+    char command[256] = {0};
+    std::string AppLogPath;
+    char* p = getenv("APP_LOG_PATH");
+    if(p == NULL)
+    {
+        AppLogPath = "./log/";
+    }
+    else
+    {
+        AppLogPath = p;
+    }
+    sprintf(command, "nohup %s > %s/%s_%s_run.log 2>&1 &", cmd.c_str(), AppLogPath.c_str(), 
+            AppName.c_str(), AppStatus.Account);
+    strncpy(AppStatus.StartScript, command, sizeof(AppStatus.StartScript));
+    strncpy(AppStatus.CommitID, APP_COMMITID, sizeof(AppStatus.CommitID));
+    strncpy(AppStatus.UtilsCommitID, UTILS_COMMITID, sizeof(AppStatus.UtilsCommitID));
+    strncpy(AppStatus.APIVersion, API_VERSION, sizeof(AppStatus.APIVersion));
+    strncpy(AppStatus.StartTime, Utils::getCurrentTimeUs(), sizeof(AppStatus.StartTime));
+    strncpy(AppStatus.LastStartTime, Utils::getCurrentTimeUs(), sizeof(AppStatus.LastStartTime));
+    strncpy(AppStatus.UpdateTime, Utils::getCurrentTimeUs(), sizeof(AppStatus.UpdateTime));
 }

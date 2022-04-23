@@ -51,8 +51,15 @@ int main(int argc, char *argv[])
     Utils::gLogger->Init();
     Utils::gLogger->setDebugLevel(debug);
 
+    std::string cmd;
+    for(int i = 0; i < argc; i++)
+    {
+        cmd += (std::string(argv[i]) + " ");
+    }
+
     RiskEngine engine;
     engine.LoadConfig(configPath.c_str());
+    engine.SetCommand(cmd);
     engine.Start();
     return 0;
 }

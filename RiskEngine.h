@@ -29,6 +29,7 @@ class RiskEngine
 public:
     explicit RiskEngine();
     void LoadConfig(const std::string& yml);
+    void SetCommand(const std::string& cmd);
     void Start();
 protected:
     void RegisterServer(const char *ip, unsigned int port);
@@ -63,12 +64,15 @@ protected:
     static int sqlite3_callback_LockedAccount(void *data, int argc, char **argv, char **azColName);
     // 查询CancelledCountTable结果回调函数
     static int sqlite3_callback_CancelledCount(void *data, int argc, char **argv, char **azColName);
-    
+
     void HandleRiskCommand(const Message::TCommand& command);
     // 账户锁定命令解析
     bool ParseUpdateLockedAccountCommand(const std::string& cmd, std::string& sql, std::string& op, Message::TRiskReport& event);
     // 风控参数设置命令解析
     bool ParseUpdateRiskLimitCommand(const std::string& cmd, std::string& sql, std::string& op, Message::TRiskReport& event);
+
+    void InitAppStatus();
+    static void UpdateAppStatus(const std::string& cmd, Message::TAppStatus& AppStatus);
 public:
     static Utils::RingBuffer<Message::PackMessage> m_RiskResponseQueue;
 private:
@@ -86,6 +90,7 @@ private:
     static std::unordered_map<std::string, Message::TRiskReport> m_AccountLockedStatusMap;// Account, TRiskReport
     RiskDBManager* m_RiskDBManager;
     static std::unordered_map<std::string, Message::TRiskReport> m_RiskLimitMap;// RiskID, TRiskReport
+    std::string m_Command;
 };
 
 

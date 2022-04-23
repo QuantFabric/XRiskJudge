@@ -4,7 +4,7 @@ PROJECT(XRiskJudge)
 set(CMAKE_CXX_FLAGS "-fPIC")
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
-SET(AppVersion 0.3.0)
+SET(AppVersion 0.4.0)
 SET(XRiskJudge_Version ${PROJECT_NAME}_${AppVersion})
 
 # 默认输出debug版
@@ -32,4 +32,4 @@ set(SOURCES main.cpp
             ${CMAKE_SOURCE_DIR}/../Utils/Logger.cpp)
 add_executable(${XRiskJudge_Version} ${SOURCES})
 
-target_link_libraries(${XRiskJudge_Version} spdlog pthread hpsocket4c yaml-cpp)                      
+target_link_libraries(${XRiskJudge_Version} spdlog pthread hpsocket4c yaml-cpp sqlite3)                      

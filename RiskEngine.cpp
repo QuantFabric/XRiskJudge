@@ -6,6 +6,7 @@ Utils::RingBuffer<Message::PackMessage> RiskEngine::m_RiskResponseQueue(1 << 10)
 XRiskLimit RiskEngine::m_XRiskLimit;
 std::unordered_map<std::string, Message::TRiskReport> RiskEngine::m_TickerCancelledCounterMap;
 std::unordered_map<std::string, Message::TRiskReport> RiskEngine::m_AccountLockedStatusMap;
+std::unordered_map<std::string, Message::TRiskReport> RiskEngine::m_RiskLimitMap;
 
 RiskEngine::RiskEngine()
 {
@@ -31,6 +32,22 @@ void RiskEngine::LoadConfig(const std::string& yml)
     {
         Utils::gLogger->Log->info("RiskEngine::LoadConfig successed, LoadXRiskJudgeConfig {}", yml.c_str());
     }
+    m_RiskDBManager = Utils::Singleton<RiskDBManager>::GetInstance();
+    ret = m_RiskDBManager->LoadDataBase(m_XRiskJudgeConfig.RiskDBPath, errorString);
+    if(!ret)
+    {
+        Utils::gLogger->Log->warn("RiskEngine::LoadConfig LoadDataBase {} failed, {}", m_XRiskJudgeConfig.RiskDBPath, errorString.c_str());
+    }
+    else
+    {
+        Utils::gLogger->Log->info("RiskEngine::LoadConfig LoadDataBase successed, {}", m_XRiskJudgeConfig.RiskDBPath);
+    }
+    // Select RiskLimitTable
+    QueryRiskLimit();
+    // Select CancelledCountTable
+    QueryCancelledCount();
+    // Select LockedAccountTable
+    QueryLockedAccount();
 }
 
 void RiskEngine::Start()
@@ -282,7 +299,14 @@ void RiskEngine::HandleOrderStatus(const Message::PackMessage& msg)
                 strncpy(report.RiskID, m_XRiskJudgeConfig.RiskID.c_str(), sizeof(report.RiskID));
                 strncpy(report.Product, OrderStatus.Product, sizeof(report.Product));
                 strncpy(report.Ticker, OrderStatus.Ticker, sizeof(report.Ticker));
-                // TODO: Update SQLite CancelledCountTable
+                // Update SQLite CancelledCountTable
+                char buffer[1024] = {0};
+                sprintf(buffer, "UPDATE CancelledCountTable SET CancelledCount=%d, Trader='%s', UpdateTime='%s' WHERE RiskID='%s' AND Product='%s' AND Ticker='%s';",
+                        report.CancelledCount, report.Trader, report.UpdateTime, report.RiskID, report.Product, report.Ticker);
+                std::string SQL = buffer;
+                std::string errorString;
+                bool ok = m_RiskDBManager->UpdateCancelledCountTable(SQL, "UPDATE", &RiskEngine::sqlite3_callback_CancelledCount, errorString);
+                strncpy(report.Event, errorString.c_str(), sizeof(report.Event));
             }
             else
             {
@@ -295,7 +319,14 @@ void RiskEngine::HandleOrderStatus(const Message::PackMessage& msg)
                 strncpy(report.Product, OrderStatus.Product, sizeof(report.Product));
                 strncpy(report.Ticker, OrderStatus.Ticker, sizeof(report.Ticker));
                 strncpy(report.UpdateTime, Utils::getCurrentTimeUs(), sizeof(report.UpdateTime));
-                // TODO: Update SQLite CancelledCountTable
+                // Update SQLite CancelledCountTable
+                char buffer[1024] = {0};
+                sprintf(buffer, "INSERT INTO CancelledCountTable(RiskID,Product,Ticker,CancelledCount,UpperLimit,Trader,UpdateTime) VALUES ('%s', '%s', '%s', %d, %d, '%s', '%s');",
+                        report.RiskID, report.Product, report.Ticker, report.CancelledCount, report.UpperLimit, report.Trader, report.UpdateTime);
+                std::string SQL = buffer;
+                std::string errorString;
+                bool ok = m_RiskDBManager->UpdateCancelledCountTable(SQL, "INSERT", &RiskEngine::sqlite3_callback_CancelledCount, errorString);
+                strncpy(report.Event, errorString.c_str(), sizeof(report.Event));
             }
             mtx.unlock();
             // Update Risk to Monitor
@@ -679,4 +710,235 @@ void RiskEngine::PrintActionRequest(const Message::TActionRequest& req, const st
                               "\t\t\t\t\t\tRiskStatus:{} UpdateTime:{} ErrorID:{} ErrorMsg:{} RiskID:{}",
                               op.c_str(), req.Account, req.OrderRef, req.EngineID, req.RiskStatus,
                               req.UpdateTime, req.ErrorID, req.ErrorMsg, req.RiskID);
+}
+
+bool RiskEngine::QueryRiskLimit()
+{
+    std::string errorString;
+    bool ret = m_RiskDBManager->QueryRiskLimit(&RiskEngine::sqlite3_callback_RiskLimit, errorString);
+    if(!ret)
+    {
+        Utils::gLogger->Log->warn("RiskEngine::QueryRiskLimit failed, {}", errorString.c_str());
+    }
+    else
+    {
+        for (auto it = m_RiskLimitMap.begin(); m_RiskLimitMap.end() != it; it++)
+        {
+            Message::PackMessage message;
+            memset(&message, 0, sizeof(message));
+            message.MessageType = Message::EMessageType::ERiskReport;
+            memcpy(&message.RiskReport, &it->second, sizeof(message.RiskReport));
+            m_RiskResponseQueue.push(message);
+        }
+    }
+    return ret;
+}
+
+bool RiskEngine::QueryLockedAccount()
+{
+    std::string errorString;
+    bool ret = m_RiskDBManager->QueryLockedAccount(&RiskEngine::sqlite3_callback_LockedAccount, errorString);
+    if(!ret)
+    {
+        Utils::gLogger->Log->warn("RiskEngine::QueryLockedAccount failed, {}", errorString.c_str());
+    }
+    else
+    {
+        for (auto it = m_AccountLockedStatusMap.begin(); m_AccountLockedStatusMap.end() != it; it++)
+        {
+            Message::PackMessage message;
+            memset(&message, 0, sizeof(message));
+            message.MessageType = Message::EMessageType::ERiskReport;
+            memcpy(&message.RiskReport, &it->second, sizeof(message.RiskReport));
+            m_RiskResponseQueue.push(message);
+        }
+    }
+    return ret;
+}
+
+bool RiskEngine::QueryCancelledCount()
+{
+    std::string errorString;
+    bool ret = m_RiskDBManager->QueryCancelledCount(&RiskEngine::sqlite3_callback_CancelledCount, errorString);
+    if(!ret)
+    {
+        Utils::gLogger->Log->warn("XRiskEngine::QueryCancelledCount failed, {}", errorString.c_str());
+    }
+    else
+    {
+        for (auto it = m_TickerCancelledCounterMap.begin(); m_TickerCancelledCounterMap.end() != it; it++)
+        {
+            Message::PackMessage message;
+            memset(&message, 0, sizeof(message));
+            message.MessageType = Message::EMessageType::ERiskReport;
+            memcpy(&message.RiskReport, &it->second, sizeof(message.RiskReport));
+            m_RiskResponseQueue.push(message);
+        }
+    }
+    return ret;
+}
+
+int RiskEngine::sqlite3_callback_RiskLimit(void *data, int argc, char **argv, char **azColName)
+{
+    for(int i = 0; i < argc; i++)
+    {
+        Utils::gLogger->Log->info("RiskEngine::sqlite3_callback_RiskLimit, {} {} = {}", (char*)data, azColName[i], argv[i]);
+        std::string colName = azColName[i];
+        std::string value = argv[i];
+        static std::string RiskID;
+        static int flowLimit = 0;
+        static int cancelledLimit = 0;
+        static int orderCancelLimit = 0;
+        static std::string Trader;
+
+        if(Utils::equalWith(colName, "RiskID"))
+        {
+            RiskID = value;
+        }
+        if(Utils::equalWith(colName, "FlowLimit"))
+        {
+            flowLimit = atoi(value.c_str());
+            m_XRiskLimit.FlowLimit = flowLimit;
+        }
+        if(Utils::equalWith(colName, "TickerCancelLimit"))
+        {
+            cancelledLimit = atoi(value.c_str());
+            m_XRiskLimit.TickerCancelLimit = cancelledLimit;
+        }
+        if(Utils::equalWith(colName, "OrderCancelLimit"))
+        {
+            orderCancelLimit = atoi(value.c_str());
+            m_XRiskLimit.OrderCancelLimit = orderCancelLimit;
+        }
+        if(Utils::equalWith(colName, "Trader"))
+        {
+            std::string Trader = value;
+        }
+        if(Utils::equalWith(colName, "UpdateTime"))
+        {
+            std::string UpdateTime = value;
+            std::mutex mtx;
+            mtx.lock();
+            Message::TRiskReport& report = m_RiskLimitMap[RiskID];
+            report.ReportType = Message::ERiskReportType::ERISK_LIMIT;
+            strncpy(report.RiskID, RiskID.c_str(), sizeof(report.RiskID));
+            report.FlowLimit = flowLimit;
+            report.TickerCancelLimit = cancelledLimit;
+            report.OrderCancelLimit = orderCancelLimit;
+            strncpy(report.Trader, Trader.c_str(), sizeof(report.Trader));
+            strncpy(report.UpdateTime, UpdateTime.c_str(), sizeof(report.UpdateTime));
+            mtx.unlock();
+        }
+    }
+    return 0;
+}
+
+int RiskEngine::sqlite3_callback_LockedAccount(void *data, int argc, char **argv, char **azColName)
+{
+    for(int i = 0; i < argc; i++)
+    {
+        Utils::gLogger->Log->info("RiskEngine::sqlite3_callback_LockedAccount, {} {} = {}", (char*)data,  azColName[i], argv[i]);
+        std::string colName = azColName[i];
+        std::string value = argv[i];
+        static std::string RiskID;
+        static std::string Account;
+        static std::string Ticker;
+        static std::string Trader;
+        static int LockedSide = 0;
+        if(Utils::equalWith(colName, "RiskID"))
+        {
+            RiskID = value;
+        }
+        if(Utils::equalWith(colName, "Account"))
+        {
+            Account = value;
+        }
+        if(Utils::equalWith(colName, "Ticker"))
+        {
+            Ticker = value;
+        }
+        if(Utils::equalWith(colName, "LockedSide"))
+        {
+            LockedSide = atoi(value.c_str());
+        }
+        if(Utils::equalWith(colName, "Trader"))
+        {
+            Trader = value;
+        }
+        if(Utils::equalWith(colName, "UpdateTime"))
+        {
+            std::string UpdateTime = value;
+            std::mutex mtx;
+            mtx.lock();
+            Message::TRiskReport& report = m_AccountLockedStatusMap[Account];
+            strncpy(report.RiskID, RiskID.c_str(), sizeof(report.RiskID));
+            strncpy(report.Account, Account.c_str(), sizeof(report.Account));
+            report.LockedSide = LockedSide;
+            report.ReportType = Message::ERiskReportType::ERISK_ACCOUNT_LOCKED;
+            strncpy(report.Ticker, Ticker.c_str(), sizeof(report.Ticker));
+            strncpy(report.Trader, Trader.c_str(), sizeof(report.Trader));
+            strncpy(report.UpdateTime, UpdateTime.c_str(), sizeof(report.UpdateTime));
+            mtx.unlock();
+        }
+    }
+    return 0;
+}
+
+int RiskEngine::sqlite3_callback_CancelledCount(void *data, int argc, char **argv, char **azColName)
+{
+    for(int i = 0; i < argc; i++)
+    {
+        Utils::gLogger->Log->info("RiskEngine::sqlite3_callback_CancelledCount, {} {} = {}", (char*)data, azColName[i], argv[i]);
+        std::string colName = azColName[i];
+        std::string value = argv[i];
+        static std::string RiskID;
+        static std::string Product;
+        static std::string Ticker;
+        static int cancelCount = 0;
+        static int UpperLimit = 0;
+        static std::string Trader;
+
+        if(Utils::equalWith(colName, "RiskID"))
+        {
+            RiskID = value;
+        }
+        if(Utils::equalWith(colName, "Product"))
+        {
+            Product = value;
+        }
+        if(Utils::equalWith(colName, "Ticker"))
+        {
+            Ticker = value;
+        }
+        if(Utils::equalWith(colName, "CancelledCount"))
+        {
+            cancelCount = atoi(value.c_str());
+        }
+        if(Utils::equalWith(colName, "UpperLimit"))
+        {
+            UpperLimit = atoi(value.c_str());
+        }
+        if(Utils::equalWith(colName, "Trader"))
+        {
+            Trader = value;
+        }
+        if(Utils::equalWith(colName, "UpdateTime"))
+        {
+            std::string UpdateTime = value;
+            std::string Key = Product + ":" + Ticker;
+            std::mutex mtx;
+            mtx.lock();
+            Message::TRiskReport& report = m_TickerCancelledCounterMap[Key];
+            report.ReportType = Message::ERiskReportType::ERISK_TICKER_CANCELLED;
+            strncpy(report.RiskID, RiskID.c_str(), sizeof(report.RiskID));
+            strncpy(report.Product, Product.c_str(), sizeof(report.Product));
+            strncpy(report.Ticker, Ticker.c_str(), sizeof(report.Ticker));
+            report.CancelledCount = cancelCount;
+            report.UpperLimit = UpperLimit;
+            strncpy(report.Trader, Trader.c_str(), sizeof(report.Trader));
+            strncpy(report.UpdateTime, UpdateTime.c_str(), sizeof(report.UpdateTime));
+            mtx.unlock();
+        }
+    }
+    return 0;
 }

@@ -14,6 +14,7 @@
 #include "YMLConfig.hpp"
 #include "HPPackServer.h"
 #include "HPPackClient.h"
+#include "RiskDBManager.hpp"
 
 struct XRiskLimit
 {
@@ -53,6 +54,15 @@ protected:
     void PrintOrderRequest(const Message::TOrderRequest& req, const std::string& op);
     // 打印风控检查前后撤单请求的状态
     void PrintActionRequest(const Message::TActionRequest& req, const std::string& op);
+    bool QueryRiskLimit();
+    bool QueryLockedAccount();
+    bool QueryCancelledCount();
+    // 查询RiskLimitTable结果回调函数
+    static int sqlite3_callback_RiskLimit(void *data, int argc, char **argv, char **azColName);
+    // 查询LockedAccountTable结果回调函数
+    static int sqlite3_callback_LockedAccount(void *data, int argc, char **argv, char **azColName);
+    // 查询CancelledCountTable结果回调函数
+    static int sqlite3_callback_CancelledCount(void *data, int argc, char **argv, char **azColName);
 public:
     static Utils::RingBuffer<Message::PackMessage> m_RiskResponseQueue;
 private:
@@ -68,6 +78,8 @@ private:
     static XRiskLimit m_XRiskLimit;
     std::unordered_map<std::string, int> m_AccountFlowLimitedMap;// Account, flow counter
     static std::unordered_map<std::string, Message::TRiskReport> m_AccountLockedStatusMap;// Account, TRiskReport
+    RiskDBManager* m_RiskDBManager;
+    static std::unordered_map<std::string, Message::TRiskReport> m_RiskLimitMap;// RiskID, TRiskReport
 };
 
 

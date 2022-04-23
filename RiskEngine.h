@@ -15,6 +15,13 @@
 #include "HPPackServer.h"
 #include "HPPackClient.h"
 
+struct XRiskLimit
+{
+    int FlowLimit;
+    int TickerCancelLimit;
+    int OrderCancelLimit;
+};
+
 class RiskEngine
 {
     friend class Utils::Singleton<RiskEngine>;
@@ -27,6 +34,12 @@ protected:
     void RegisterClient(const char *ip, unsigned int port);
     void HandleRequestFunc();
     void HandleResponseFunc();
+    void HandleRequest(Message::PackMessage& msg);
+    void HandleResponse(const Message::PackMessage& msg);
+    void HandleCommand(const Message::PackMessage& msg);
+    void HandleOrderStatus(const Message::PackMessage& msg);
+    void HandleOrderRequest(Message::PackMessage& msg);
+    void HandleActionRequest(Message::PackMessage& msg);
 public:
     static Utils::RingBuffer<Message::PackMessage> m_RiskResponseQueue;
 private:
@@ -35,6 +48,11 @@ private:
     Utils::XRiskJudgeConfig m_XRiskJudgeConfig;
     std::thread* m_RequestThread;
     std::thread* m_ResponseThread;
+    std::unordered_map<std::string, Message::TOrderStatus> m_PendingOrderMap;// OrderRef, TOrderStatus
+    std::unordered_map<std::string, std::list<Message::TOrderStatus>> m_TickerPendingOrderListMap;// Ticker, OrderList
+    std::unordered_map<std::string, int> m_OrderCancelledCounterMap;// OrderRef, Cancelled Count
+    static std::unordered_map<std::string, Message::TRiskReport> m_TickerCancelledCounterMap;// Ticker, TRiskReport
+    static XRiskLimit m_XRiskLimit;
 };
 
 

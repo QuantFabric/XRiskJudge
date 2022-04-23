@@ -63,6 +63,12 @@ protected:
     static int sqlite3_callback_LockedAccount(void *data, int argc, char **argv, char **azColName);
     // 查询CancelledCountTable结果回调函数
     static int sqlite3_callback_CancelledCount(void *data, int argc, char **argv, char **azColName);
+    
+    void HandleRiskCommand(const Message::TCommand& command);
+    // 账户锁定命令解析
+    bool ParseUpdateLockedAccountCommand(const std::string& cmd, std::string& sql, std::string& op, Message::TRiskReport& event);
+    // 风控参数设置命令解析
+    bool ParseUpdateRiskLimitCommand(const std::string& cmd, std::string& sql, std::string& op, Message::TRiskReport& event);
 public:
     static Utils::RingBuffer<Message::PackMessage> m_RiskResponseQueue;
 private:

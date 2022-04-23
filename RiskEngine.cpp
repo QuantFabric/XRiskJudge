@@ -200,7 +200,8 @@ void RiskEngine::HandleResponse(const Message::PackMessage& msg)
 void RiskEngine::HandleCommand(const Message::PackMessage& msg)
 {
     Utils::gLogger->Log->info("RiskEngine::HandleCommand Command:{}", msg.Command.Command);
-    // TODO: Handle Command
+    // Handle Risk Command
+    HandleRiskCommand(msg.Command);
 }
 
 void RiskEngine::HandleOrderStatus(const Message::PackMessage& msg)
@@ -941,4 +942,246 @@ int RiskEngine::sqlite3_callback_CancelledCount(void *data, int argc, char **arg
         }
     }
     return 0;
+}
+
+void RiskEngine::HandleRiskCommand(const Message::TCommand& command)
+{
+    Utils::gLogger->Log->info("RiskEngine::HandleRiskCommand CmdType:{}, Command:{}", command.CmdType, command.Command);
+    std::string cmd = command.Command;
+    Message::TRiskReport RiskEvent;
+    memset(&RiskEvent, 0, sizeof(RiskEvent));
+    RiskEvent.ReportType = Message::ERiskReportType::ERISK_EVENTLOG;
+
+    if(Message::ECommandType::EUPDATE_RISK_LIMIT == command.CmdType)
+    {
+        std::string sql, op;
+        if(ParseUpdateRiskLimitCommand(cmd, sql, op, RiskEvent))
+        {
+            std::string errorString;
+            bool ok = m_RiskDBManager->UpdateRiskLimitTable(sql, op, &RiskEngine::sqlite3_callback_RiskLimit, errorString);
+            strncpy(RiskEvent.Event, errorString.c_str(), sizeof(RiskEvent.Event));
+            if(ok)
+            {
+                // Update CancelledCountTable
+                char buffer[256] = {0};
+                sprintf(buffer, "UPDATE CancelledCountTable SET UpperLimit=%d, Trader='%s', UpdateTime='%s' WHERE RiskID='%s';",
+                        RiskEvent.TickerCancelLimit, RiskEvent.Trader, RiskEvent.UpdateTime, RiskEvent.RiskID);
+                std::string SQL = buffer;
+                bool ret = m_RiskDBManager->UpdateCancelledCountTable(SQL, "UPDATE", &RiskEngine::sqlite3_callback_CancelledCount, errorString);
+                if(!ret)
+                {
+                    Utils::gLogger->Log->warn("RiskEngine::Update CancelledCountTable failed, {}, sql:{}", errorString.c_str(), SQL.c_str());
+                }
+                else
+                {
+                    QueryCancelledCount();
+                }
+            }
+            QueryRiskLimit();
+        }
+        {
+            Message::PackMessage message;
+            memset(&message, 0, sizeof(message));
+            message.MessageType = Message::EMessageType::ERiskReport;
+            memcpy(&message.RiskReport, &RiskEvent, sizeof(message.RiskReport));
+            m_RiskResponseQueue.push(message);
+        }
+    }
+    else if(Message::ECommandType::EUPDATE_RISK_ACCOUNT_LOCKED == command.CmdType)
+    {
+        std::string sql, op;
+        Utils::gLogger->Log->warn("RiskEngine::ParseUpdateLockedAccountCommand start size:{}", m_AccountLockedStatusMap.size());
+        if(ParseUpdateLockedAccountCommand(cmd, sql, op, RiskEvent))
+        {
+            std::string errorString;
+            bool ok = m_RiskDBManager->UpdateLockedAccountTable(sql, op, &RiskEngine::sqlite3_callback_LockedAccount, errorString);
+            strncpy(RiskEvent.Event, errorString.c_str(), sizeof(RiskEvent.Event));
+            std::mutex mtx;
+            mtx.lock();
+            std::list<std::string> accounts;
+            for (auto it = m_AccountLockedStatusMap.begin(); m_AccountLockedStatusMap.end() != it; it++)
+            {
+                if(ok && Utils::equalWith(op, "DELETE") && sql.find(it->first) != std::string::npos)
+                {
+                    it->second.LockedSide = Message::ERiskLockedSide::EUNLOCK;
+                    accounts.push_back(it->first);
+                }
+            }
+            mtx.unlock();
+            QueryLockedAccount();
+            for (auto it = accounts.begin(); it != accounts.end(); it++)
+            {
+                std::mutex mtx;
+                mtx.lock();
+                m_AccountLockedStatusMap.erase(*it);
+                mtx.unlock();
+            }
+            Utils::gLogger->Log->warn("RiskEngine::ParseUpdateLockedAccountCommand end size:{}",
+                                      m_AccountLockedStatusMap.size());
+        }
+        {
+            Message::PackMessage message;
+            memset(&message, 0, sizeof(message));
+            message.MessageType = Message::EMessageType::ERiskReport;
+            memcpy(&message.RiskReport, &RiskEvent, sizeof(message.RiskReport));
+            m_RiskResponseQueue.push(message);
+        }
+    }
+}
+
+bool RiskEngine::ParseUpdateLockedAccountCommand(const std::string& cmd, std::string& sql, std::string& op, Message::TRiskReport& event)
+{
+    bool ret = true;
+    sql.clear();
+    std::vector<std::string> items;
+    Utils::Split(cmd, ",", items);
+    if(5 == items.size())
+    {
+        std::vector<std::string> keyValue;
+        Utils::Split(items[0], ":", keyValue);
+        std::string RiskID = keyValue[1];
+        strncpy(event.RiskID, RiskID.c_str(), sizeof(event.RiskID));
+
+        keyValue.clear();
+        Utils::Split(items[1], ":", keyValue);
+        std::string Account = keyValue[1];
+        strncpy(event.Account, Account.c_str(), sizeof(event.Account));
+
+        keyValue.clear();
+        Utils::Split(items[2], ":", keyValue);
+        std::string Ticker = keyValue[1];
+        strncpy(event.Ticker, Ticker.c_str(), sizeof(event.Ticker));
+
+        keyValue.clear();
+        Utils::Split(items[3], ":", keyValue);
+        int LockSide = atoi(keyValue[1].c_str());
+
+        keyValue.clear();
+        Utils::Split(items[4], ":", keyValue);
+        std::string Trader = keyValue[1];
+        strncpy(event.Trader, Trader.c_str(), sizeof(event.Trader));
+        std::string CurrentTime = Utils::getCurrentTimeUs();
+        strncpy(event.UpdateTime, CurrentTime.c_str(), sizeof(event.UpdateTime));
+        auto it = m_AccountLockedStatusMap.find(Account);
+        if(m_AccountLockedStatusMap.end() == it)
+        {
+            // Insert
+            if(Message::ERiskLockedSide::EUNLOCK != LockSide)
+            {
+                char buffer[256] = {0};
+                sprintf(buffer, "INSERT INTO LockedAccountTable(RiskID, Account, Ticker, LockedSide, Trader, UpdateTime) VALUES ('%s', '%s', '%s', %d, '%s', '%s');",
+                        RiskID.c_str(), Account.c_str(), Ticker.c_str(), LockSide, Trader.c_str(), CurrentTime.c_str());
+                sql = buffer;
+                op = "INSERT";
+            }
+            else
+            {
+                ret= false;
+                sprintf(event.Event, "Account:%s not found, can't UnLock. invalid command:%s", Account.c_str(), cmd.c_str());
+                Utils::gLogger->Log->warn("RiskEngine::ParseUpdateAccountLockedCommand invalid command, Account:{} not found, can't UnLock. cmd:{}",
+                                          Account.c_str(), cmd.c_str());
+            }
+        }
+        else
+        {
+            // Update
+            char buffer[256] = {0};
+            if(Message::ERiskLockedSide::EUNLOCK == LockSide)
+            {
+                if(Message::ERiskLockedSide::EUNLOCK != it->second.LockedSide)
+                {
+                    sprintf(buffer, "DELETE FROM LockedAccountTable WHERE RiskID='%s' AND Account='%s';",
+                            RiskID.c_str(), Account.c_str());
+                    op = "DELETE";
+                }
+                else
+                {
+                    ret= false;
+                    sprintf(event.Event, "Account:%s UnLocked, can't UnLock. invalid command:%s", Account.c_str(), cmd.c_str());
+                }
+            }
+            else
+            {
+                sprintf(buffer, "UPDATE LockedAccountTable SET Ticker=%s, LockedSide=%d, Trader='%s', UpdateTime='%s' WHERE RiskID='%s' AND Account='%s';",
+                        Ticker.c_str(), LockSide, Trader.c_str(), Utils::getCurrentTimeUs(), RiskID.c_str(), Account.c_str());
+                op = "UPDATE";
+            }
+            sql = buffer;
+        }
+        Utils::gLogger->Log->info("RiskEngine::ParseUpdateLockedAccountCommand, RiskID:{} Account:{} Ticker:{} LockSide:{} MapSize:{}",
+                                  RiskID.c_str(), Account.c_str(), Ticker.c_str(), LockSide, m_AccountLockedStatusMap.size());
+    }
+    else
+    {
+        ret = false;
+        sprintf(event.Event, "invalid command:%s", cmd.c_str());
+        Utils::gLogger->Log->warn("RiskEngine::ParseUpdateAccountLockedCommand invalid command, {}", cmd.c_str());
+    }
+    return ret;
+}
+
+bool RiskEngine::ParseUpdateRiskLimitCommand(const std::string& cmd, std::string& sql, std::string& op, Message::TRiskReport& event)
+{
+    bool ret = true;
+    sql.clear();
+    std::vector<std::string> items;
+    Utils::Split(cmd, ",", items);
+    if(5 == items.size())
+    {
+        std::vector<std::string> keyValue;
+        Utils::Split(items[0], ":", keyValue);
+        std::string RiskID = keyValue[1];
+        strncpy(event.RiskID, RiskID.c_str(), sizeof(event.RiskID));
+
+        keyValue.clear();
+        Utils::Split(items[1], ":", keyValue);
+        int FlowLimit = atoi(keyValue[1].c_str());
+        event.FlowLimit = FlowLimit;
+
+        keyValue.clear();
+        Utils::Split(items[2], ":", keyValue);
+        int TickerCancelLimit = atoi(keyValue[1].c_str());
+        event.TickerCancelLimit = TickerCancelLimit;
+
+        keyValue.clear();
+        Utils::Split(items[3], ":", keyValue);
+        int OrderCancelLimit = atoi(keyValue[1].c_str());
+        event.OrderCancelLimit = OrderCancelLimit;
+
+        keyValue.clear();
+        Utils::Split(items[4], ":", keyValue);
+        std::string Trader = keyValue[1];
+        strncpy(event.Trader, Trader.c_str(), sizeof(event.Trader));
+        std::string CurrentTime = Utils::getCurrentTimeUs();
+        strncpy(event.UpdateTime, CurrentTime.c_str(), sizeof(event.UpdateTime));
+
+        auto it = m_RiskLimitMap.find(RiskID);
+        if(m_RiskLimitMap.end() == it)
+        {
+            // Insert
+            char buffer[256] = {0};
+            sprintf(buffer, "INSERT INTO RiskLimitTable(RiskID,FlowLimit,TickerCancelLimit,OrderCancelLimit,Trader,UpdateTime) VALUES('%s',%d,%d,%d,'%s','%s');",
+                    RiskID.c_str(), FlowLimit, TickerCancelLimit, OrderCancelLimit, Trader.c_str(), CurrentTime.c_str());
+            sql = buffer;
+            op = "INSERT";
+        }
+        else
+        {
+            // Update
+            char buffer[256] = {0};
+            sprintf(buffer, "UPDATE RiskLimitTable SET FlowLimit=%d,TickerCancelLimit=%d,OrderCancelLimit=%d,Trader='%s',UpdateTime='%s' WHERE RiskID='%s';",
+                    FlowLimit, TickerCancelLimit, OrderCancelLimit, Trader.c_str(), CurrentTime.c_str(), RiskID.c_str());
+            sql = buffer;
+            op = "UPDATE";
+        }
+        Utils::gLogger->Log->info("RiskEngine::ParseUpdateRiskLimitCommand, RiskID:{} FlowLimit:{} TickerCancelLimit:{} OrderCancelLimit:{} MapSize:{}",
+                                  RiskID.c_str(), FlowLimit, TickerCancelLimit, OrderCancelLimit, m_RiskLimitMap.size());
+    }
+    else
+    {
+        ret = false;
+        sprintf(event.Event, "invalid command:%s", cmd.c_str());
+        Utils::gLogger->Log->warn("RiskEngine::ParseUpdateRiskLimitCommand invalid command, {}", cmd.c_str());
+    }
+    return ret;
 }

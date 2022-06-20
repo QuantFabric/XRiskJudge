@@ -293,9 +293,9 @@ void RiskEngine::HandleOrderStatus(const Message::PackMessage& msg)
                          Message::EOrderStatus::EEXCHANGE_ERROR == OrderStatus.OrderStatus;
         if(OrderStatus.OrderType == Message::EOrderType::ELIMIT && cancelled)
         {
-            std::string Product = OrderStatus.Product;
+            std::string Account = OrderStatus.Account;
             std::string Ticker = OrderStatus.Ticker;
-            std::string Key = Product + ":" + Ticker;
+            std::string Key = Account + ":" + Ticker;
             std::mutex mtx;
             mtx.lock();
             int CancelledCount = 0;
@@ -307,12 +307,12 @@ void RiskEngine::HandleOrderStatus(const Message::PackMessage& msg)
                 CancelledCount = report.CancelledCount;
                 strncpy(report.UpdateTime, Utils::getCurrentTimeUs(), sizeof(report.UpdateTime));
                 strncpy(report.RiskID, m_XRiskJudgeConfig.RiskID.c_str(), sizeof(report.RiskID));
-                strncpy(report.Product, OrderStatus.Product, sizeof(report.Product));
+                strncpy(report.Account, OrderStatus.Account, sizeof(report.Account));
                 strncpy(report.Ticker, OrderStatus.Ticker, sizeof(report.Ticker));
                 // Update SQLite CancelledCountTable
                 char buffer[1024] = {0};
-                sprintf(buffer, "UPDATE CancelledCountTable SET CancelledCount=%d, Trader='%s', UpdateTime='%s' WHERE RiskID='%s' AND Product='%s' AND Ticker='%s';",
-                        report.CancelledCount, report.Trader, report.UpdateTime, report.RiskID, report.Product, report.Ticker);
+                sprintf(buffer, "UPDATE CancelledCountTable SET CancelledCount=%d, Trader='%s', UpdateTime='%s' WHERE RiskID='%s' AND Account='%s' AND Ticker='%s';",
+                        report.CancelledCount, report.Trader, report.UpdateTime, report.RiskID, report.Account, report.Ticker);
                 std::string SQL = buffer;
                 std::string errorString;
                 bool ok = m_RiskDBManager->UpdateCancelledCountTable(SQL, "UPDATE", &RiskEngine::sqlite3_callback_CancelledCount, errorString);
@@ -326,13 +326,13 @@ void RiskEngine::HandleOrderStatus(const Message::PackMessage& msg)
                 CancelledCount = report.CancelledCount;
                 report.ReportType = Message::ERiskReportType::ERISK_TICKER_CANCELLED;
                 strncpy(report.RiskID, m_XRiskJudgeConfig.RiskID.c_str(), sizeof(report.RiskID));
-                strncpy(report.Product, OrderStatus.Product, sizeof(report.Product));
+                strncpy(report.Account, OrderStatus.Account, sizeof(report.Account));
                 strncpy(report.Ticker, OrderStatus.Ticker, sizeof(report.Ticker));
                 strncpy(report.UpdateTime, Utils::getCurrentTimeUs(), sizeof(report.UpdateTime));
                 // Update SQLite CancelledCountTable
                 char buffer[1024] = {0};
-                sprintf(buffer, "INSERT INTO CancelledCountTable(RiskID,Product,Ticker,CancelledCount,UpperLimit,Trader,UpdateTime) VALUES ('%s', '%s', '%s', %d, %d, '%s', '%s');",
-                        report.RiskID, report.Product, report.Ticker, report.CancelledCount, report.UpperLimit, report.Trader, report.UpdateTime);
+                sprintf(buffer, "INSERT INTO CancelledCountTable(RiskID,Account,Ticker,CancelledCount,UpperLimit,Trader,UpdateTime) VALUES ('%s', '%s', '%s', %d, %d, '%s', '%s');",
+                        report.RiskID, report.Account, report.Ticker, report.CancelledCount, report.UpperLimit, report.Trader, report.UpdateTime);
                 std::string SQL = buffer;
                 std::string errorString;
                 bool ok = m_RiskDBManager->UpdateCancelledCountTable(SQL, "INSERT", &RiskEngine::sqlite3_callback_CancelledCount, errorString);
@@ -552,7 +552,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                     ret = false;
                     LockedSide = "LockedSide:Buy Ticker:All";
                 }
-                else if(Ticker == msg.OrderRequest.Ticker)
+                else if(Ticker.find(msg.OrderRequest.Ticker) != std::string::npos)
                 {
                     ret = false;
                     LockedSide = "LockedSide:Buy Ticker:" + Ticker;
@@ -566,7 +566,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                     ret = false;
                     LockedSide = "LockedSide:Sell Ticker:All";
                 }
-                else if(Ticker == msg.OrderRequest.Ticker)
+                else if(Ticker.find(msg.OrderRequest.Ticker) != std::string::npos)
                 {
                     ret = false;
                     LockedSide = "LockedSide:Sell Ticker:" + Ticker;
@@ -658,9 +658,9 @@ bool RiskEngine::CancelLimited(Message::PackMessage& msg)
             // Ticker Cancelled Limit
             if(ret)
             {
-                std::string Product = it->second.Product;
+                std::string Account = it->second.Account;
                 std::string Ticker = it->second.Ticker;
-                std::string Key = Product + ":" + Ticker;
+                std::string Key = Account + ":" + Ticker;
                 int CancelRequestCount = 0;
                 auto it1 = m_TickerCancelledCounterMap.find(Key);
                 if(it1 != m_TickerCancelledCounterMap.end())
@@ -902,7 +902,7 @@ int RiskEngine::sqlite3_callback_CancelledCount(void *data, int argc, char **arg
         std::string colName = azColName[i];
         std::string value = argv[i];
         static std::string RiskID;
-        static std::string Product;
+        static std::string Account;
         static std::string Ticker;
         static int cancelCount = 0;
         static int UpperLimit = 0;
@@ -912,9 +912,9 @@ int RiskEngine::sqlite3_callback_CancelledCount(void *data, int argc, char **arg
         {
             RiskID = value;
         }
-        if(Utils::equalWith(colName, "Product"))
+        if(Utils::equalWith(colName, "Account"))
         {
-            Product = value;
+            Account = value;
         }
         if(Utils::equalWith(colName, "Ticker"))
         {
@@ -935,13 +935,13 @@ int RiskEngine::sqlite3_callback_CancelledCount(void *data, int argc, char **arg
         if(Utils::equalWith(colName, "UpdateTime"))
         {
             std::string UpdateTime = value;
-            std::string Key = Product + ":" + Ticker;
+            std::string Key = Account + ":" + Ticker;
             std::mutex mtx;
             mtx.lock();
             Message::TRiskReport& report = m_TickerCancelledCounterMap[Key];
             report.ReportType = Message::ERiskReportType::ERISK_TICKER_CANCELLED;
             strncpy(report.RiskID, RiskID.c_str(), sizeof(report.RiskID));
-            strncpy(report.Product, Product.c_str(), sizeof(report.Product));
+            strncpy(report.Account, Account.c_str(), sizeof(report.Account));
             strncpy(report.Ticker, Ticker.c_str(), sizeof(report.Ticker));
             report.CancelledCount = cancelCount;
             report.UpperLimit = UpperLimit;
@@ -1111,7 +1111,7 @@ bool RiskEngine::ParseUpdateLockedAccountCommand(const std::string& cmd, std::st
             }
             else
             {
-                sprintf(buffer, "UPDATE LockedAccountTable SET Ticker=%s, LockedSide=%d, Trader='%s', UpdateTime='%s' WHERE RiskID='%s' AND Account='%s';",
+                sprintf(buffer, "UPDATE LockedAccountTable SET Ticker='%s', LockedSide=%d, Trader='%s', UpdateTime='%s' WHERE RiskID='%s' AND Account='%s';",
                         Ticker.c_str(), LockSide, Trader.c_str(), Utils::getCurrentTimeUs(), RiskID.c_str(), Account.c_str());
                 op = "UPDATE";
             }

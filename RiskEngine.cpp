@@ -31,6 +31,12 @@ void RiskEngine::LoadConfig(const std::string& yml)
     else
     {
         Utils::gLogger->Log->info("RiskEngine::LoadConfig successed, LoadXRiskJudgeConfig {}", yml.c_str());
+        std::vector<std::string> vec;
+        Utils::Split(m_XRiskJudgeConfig.CPUSET, ",", vec);
+        for(int i = 0; i < vec.size(); i++)
+        {
+            m_CPUSETVector.push_back(atoi(vec.at(i).c_str()));
+        }
     }
     m_RiskDBManager = Utils::Singleton<RiskDBManager>::GetInstance();
     ret = m_RiskDBManager->LoadDataBase(m_XRiskJudgeConfig.RiskDBPath, errorString);
@@ -90,7 +96,9 @@ void RiskEngine::RegisterClient(const char *ip, unsigned int port)
 
 void RiskEngine::HandleRequestFunc()
 {
-    Utils::gLogger->Log->info("RiskEngine::HandleRequestFunc Risk Service {} Running", m_XRiskJudgeConfig.RiskID);
+    bool ret = Utils::ThreadBind(pthread_self(), m_CPUSETVector.at(0));
+    Utils::gLogger->Log->info("RiskEngine::HandleRequestFunc Risk Service {} Running CPU:{} BindCPU:{}",
+                                m_XRiskJudgeConfig.RiskID, m_CPUSETVector.at(0), ret);
     while (true)
     {
         Message::PackMessage message;
@@ -114,7 +122,9 @@ void RiskEngine::HandleRequestFunc()
 
 void RiskEngine::HandleResponseFunc()
 {
-    Utils::gLogger->Log->info("RiskEngine::HandleResponseFunc Response Message Handling");
+    bool ret = Utils::ThreadBind(pthread_self(), m_CPUSETVector.at(1));
+    Utils::gLogger->Log->info("RiskEngine::HandleResponseFunc Message Handling CPU:{} BindCPU:{}",
+                                m_CPUSETVector.at(1), ret);
     while (true)
     {
         Message::PackMessage message;

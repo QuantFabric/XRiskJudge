@@ -91,6 +91,7 @@ private:
     RiskDBManager* m_RiskDBManager;
     static std::unordered_map<std::string, Message::TRiskReport> m_RiskLimitMap;// RiskID, TRiskReport
     std::string m_Command;
+    std::vector<int> m_CPUSETVector;
 };
 
 

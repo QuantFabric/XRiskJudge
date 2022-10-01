@@ -97,6 +97,10 @@ En_HP_HandleResult __stdcall HPPackServer::OnPrepareListen(HP_Server pSender, UI
     int iAddressLen = sizeof(szAddress) / sizeof(TCHAR);
     USHORT usPort;
     ::HP_Server_GetListenAddress(pSender, szAddress, &iAddressLen, &usPort);
+    int enable = 1;
+    int ret1 = SYS_SetSocketOption(soListen, IPPROTO_TCP, TCP_NODELAY, &enable, sizeof(enable));
+    int ret2 = SYS_SetSocketOption(soListen, IPPROTO_TCP, TCP_QUICKACK, &enable, sizeof(enable));
+    Utils::gLogger->Log->info("HPPackServer::OnPrepareListen Socket:{} NoDelay:{} QuickAck:{}", soListen, ret1 == 0, ret2 == 0);
     return HR_OK;
 }
 

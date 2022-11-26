@@ -15,6 +15,7 @@
 #include "HPPackServer.h"
 #include "HPPackClient.h"
 #include "RiskDBManager.hpp"
+#include "LockFreeQueue.hpp"
 
 struct XRiskLimit
 {
@@ -34,8 +35,7 @@ public:
 protected:
     void RegisterServer(const char *ip, unsigned int port);
     void RegisterClient(const char *ip, unsigned int port);
-    void HandleRequestFunc();
-    void HandleResponseFunc();
+    void WorkFunc();
     void HandleRequest(Message::PackMessage& msg);
     void HandleResponse(const Message::PackMessage& msg);
     void HandleCommand(const Message::PackMessage& msg);
@@ -74,13 +74,12 @@ protected:
     void InitAppStatus();
     static void UpdateAppStatus(const std::string& cmd, Message::TAppStatus& AppStatus);
 public:
-    static Utils::RingBuffer<Message::PackMessage> m_RiskResponseQueue;
+    static Utils::LockFreeQueue<Message::PackMessage> m_RiskResponseQueue;
 private:
     HPPackServer* m_HPPackServer;
     HPPackClient* m_HPPackClient;
     Utils::XRiskJudgeConfig m_XRiskJudgeConfig;
-    std::thread* m_RequestThread;
-    std::thread* m_ResponseThread;
+    std::thread* m_WorkThread;
     std::unordered_map<std::string, Message::TOrderStatus> m_PendingOrderMap;// OrderRef, TOrderStatus
     std::unordered_map<std::string, std::list<Message::TOrderStatus>> m_TickerPendingOrderListMap;// Ticker, OrderList
     std::unordered_map<std::string, int> m_OrderCancelledCounterMap;// OrderRef, Cancelled Count

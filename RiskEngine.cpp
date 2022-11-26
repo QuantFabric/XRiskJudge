@@ -2,7 +2,7 @@
 
 extern Utils::Logger* gLogger;
 
-Utils::RingBuffer<Message::PackMessage> RiskEngine::m_RiskResponseQueue(1 << 10);
+Utils::LockFreeQueue<Message::PackMessage> RiskEngine::m_RiskResponseQueue(1 << 12);
 XRiskLimit RiskEngine::m_XRiskLimit;
 std::unordered_map<std::string, Message::TRiskReport> RiskEngine::m_TickerCancelledCounterMap;
 std::unordered_map<std::string, Message::TRiskReport> RiskEngine::m_AccountLockedStatusMap;
@@ -12,8 +12,7 @@ RiskEngine::RiskEngine()
 {
     m_HPPackServer = NULL;
     m_HPPackClient = NULL;
-    m_RequestThread = NULL;
-    m_ResponseThread = NULL;
+    m_WorkThread = NULL;
 
     m_XRiskLimit.FlowLimit  = 10;
     m_XRiskLimit.OrderCancelLimit = 5;
@@ -70,11 +69,8 @@ void RiskEngine::Start()
     // Update App Status
     InitAppStatus();
     
-    m_RequestThread = new std::thread(&RiskEngine::HandleRequestFunc, this);
-    m_ResponseThread = new std::thread(&RiskEngine::HandleResponseFunc, this);
-
-    m_RequestThread->join();
-    m_ResponseThread->join();
+    m_WorkThread = new std::thread(&RiskEngine::WorkFunc, this);
+    m_WorkThread->join();
 }
 
 void RiskEngine::RegisterServer(const char *ip, unsigned int port)
@@ -94,22 +90,25 @@ void RiskEngine::RegisterClient(const char *ip, unsigned int port)
     m_HPPackClient->Login(login);
 }
 
-void RiskEngine::HandleRequestFunc()
+void RiskEngine::WorkFunc()
 {
     bool ret = Utils::ThreadBind(pthread_self(), m_CPUSETVector.at(0));
-    Utils::gLogger->Log->info("RiskEngine::HandleRequestFunc Risk Service {} Running CPU:{} BindCPU:{}",
+    Utils::gLogger->Log->info("RiskEngine::WorkFunc Risk Service {} Running CPU:{} BindCPU:{}",
                                 m_XRiskJudgeConfig.RiskID, m_CPUSETVector.at(0), ret);
     while (true)
     {
         Message::PackMessage message;
-        memset(&message, 0, sizeof(message));
-        bool ret = m_HPPackServer->m_RequestMessageQueue.pop(message);
+        bool ret = m_HPPackServer->m_RequestMessageQueue.Pop(message);
         if(ret)
         {
             HandleRequest(message);
         }
-        memset(&message, 0, sizeof(message));
-        ret = m_HPPackClient->m_PackMessageQueue.pop(message);
+        ret = m_RiskResponseQueue.Pop(message);
+        if(ret)
+        {
+            HandleResponse(message);
+        }
+        ret = m_HPPackClient->m_PackMessageQueue.Pop(message);
         if(ret)
         {
             if(message.MessageType == Message::EMessageType::ECommand)
@@ -117,30 +116,13 @@ void RiskEngine::HandleRequestFunc()
                 HandleCommand(message);
             }
         }
-    }
-}
-
-void RiskEngine::HandleResponseFunc()
-{
-    bool ret = Utils::ThreadBind(pthread_self(), m_CPUSETVector.at(1));
-    Utils::gLogger->Log->info("RiskEngine::HandleResponseFunc Message Handling CPU:{} BindCPU:{}",
-                                m_CPUSETVector.at(1), ret);
-    while (true)
-    {
-        Message::PackMessage message;
-        memset(&message, 0, sizeof(message));
-        bool ret = m_RiskResponseQueue.pop(message);
-        if(ret)
-        {
-            HandleResponse(message);
-        }
         static long CurrentTimeStamp = 0;
         long Sec = Utils::getTimeStampMs(Utils::getCurrentTimeMs() + 11) / 1000;
         if(CurrentTimeStamp < Sec)
         {
             CurrentTimeStamp = Sec;
         }
-        if(CurrentTimeStamp % 5 == 0)
+        if(CurrentTimeStamp % 10 == 0)
         {
             m_HPPackClient->ReConnect();
             CurrentTimeStamp += 1;
@@ -306,8 +288,6 @@ void RiskEngine::HandleOrderStatus(const Message::PackMessage& msg)
             std::string Account = OrderStatus.Account;
             std::string Ticker = OrderStatus.Ticker;
             std::string Key = Account + ":" + Ticker;
-            std::mutex mtx;
-            mtx.lock();
             int CancelledCount = 0;
             auto it = m_TickerCancelledCounterMap.find(Key);
             if(m_TickerCancelledCounterMap.end() != it)
@@ -348,14 +328,13 @@ void RiskEngine::HandleOrderStatus(const Message::PackMessage& msg)
                 bool ok = m_RiskDBManager->UpdateCancelledCountTable(SQL, "INSERT", &RiskEngine::sqlite3_callback_CancelledCount, errorString);
                 strncpy(report.Event, errorString.c_str(), sizeof(report.Event));
             }
-            mtx.unlock();
             // Update Risk to Monitor
             {
                 Message::PackMessage message;
                 memset(&message, 0, sizeof(message));
                 message.MessageType = Message::EMessageType::ERiskReport;
                 memcpy(&message.RiskReport, &m_TickerCancelledCounterMap[Key], sizeof(message.RiskReport));
-                m_RiskResponseQueue.push(message);
+                while(!m_RiskResponseQueue.Push(message));
             }
             Utils::gLogger->Log->info("RiskEngine::HandleOrderStatus, Update Cancelled Order Counter, Product:{}"
                                       "Account:{} Ticker:{} OrderRef:{} OrderStatus:{} OrderType:{} CancelledCount:{}",
@@ -373,7 +352,7 @@ void RiskEngine::HandleOrderRequest(Message::PackMessage& msg)
         strncpy(msg.OrderRequest.RiskID, m_XRiskJudgeConfig.RiskID.c_str(), sizeof(msg.OrderRequest.RiskID));
         msg.OrderRequest.ErrorID = -1;
         strncpy(msg.OrderRequest.ErrorMsg, "Risk Check Init", sizeof(msg.OrderRequest.ErrorMsg));
-        m_RiskResponseQueue.push(msg);
+        while(!m_RiskResponseQueue.Push(msg));
         return;
     }
     Check(msg);
@@ -461,10 +440,10 @@ bool RiskEngine::Check(Message::PackMessage& msg)
             }
             memcpy(&message.RiskReport, &RiskEvent, sizeof(message.RiskReport));
             // 风控拦截事件报告
-            m_RiskResponseQueue.push(message);
+            while(!m_RiskResponseQueue.Push(message));
         }
         // 风控检查结果
-        m_RiskResponseQueue.push(msg);
+        while(!m_RiskResponseQueue.Push(msg));
     }
     int end = Utils::getTimeUs();
     Utils::gLogger->Log->info("RiskEngine::Check Risk Check Latency:{}", end - start);
@@ -748,7 +727,7 @@ bool RiskEngine::QueryRiskLimit()
             memset(&message, 0, sizeof(message));
             message.MessageType = Message::EMessageType::ERiskReport;
             memcpy(&message.RiskReport, &it->second, sizeof(message.RiskReport));
-            m_RiskResponseQueue.push(message);
+            while(!m_RiskResponseQueue.Push(message));
         }
     }
     return ret;
@@ -770,7 +749,7 @@ bool RiskEngine::QueryLockedAccount()
             memset(&message, 0, sizeof(message));
             message.MessageType = Message::EMessageType::ERiskReport;
             memcpy(&message.RiskReport, &it->second, sizeof(message.RiskReport));
-            m_RiskResponseQueue.push(message);
+            while(!m_RiskResponseQueue.Push(message));
         }
     }
     return ret;
@@ -792,7 +771,7 @@ bool RiskEngine::QueryCancelledCount()
             memset(&message, 0, sizeof(message));
             message.MessageType = Message::EMessageType::ERiskReport;
             memcpy(&message.RiskReport, &it->second, sizeof(message.RiskReport));
-            m_RiskResponseQueue.push(message);
+            while(!m_RiskResponseQueue.Push(message));
         }
     }
     return ret;
@@ -1003,7 +982,7 @@ void RiskEngine::HandleRiskCommand(const Message::TCommand& command)
             memset(&message, 0, sizeof(message));
             message.MessageType = Message::EMessageType::ERiskReport;
             memcpy(&message.RiskReport, &RiskEvent, sizeof(message.RiskReport));
-            m_RiskResponseQueue.push(message);
+            while(!m_RiskResponseQueue.Push(message));
         }
     }
     else if(Message::ECommandType::EUPDATE_RISK_ACCOUNT_LOCKED == command.CmdType)
@@ -1043,7 +1022,7 @@ void RiskEngine::HandleRiskCommand(const Message::TCommand& command)
             memset(&message, 0, sizeof(message));
             message.MessageType = Message::EMessageType::ERiskReport;
             memcpy(&message.RiskReport, &RiskEvent, sizeof(message.RiskReport));
-            m_RiskResponseQueue.push(message);
+            while(!m_RiskResponseQueue.Push(message));
         }
     }
 }

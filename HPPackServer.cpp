@@ -2,8 +2,8 @@
 
 extern Utils::Logger *gLogger;
 
-std::unordered_map<HP_CONNID, Connection> HPPackServer::m_sConnections;
-Utils::RingBuffer<Message::PackMessage> HPPackServer::m_RequestMessageQueue(1 << 10);
+HPPackServer::ConnectionMapT HPPackServer::m_sConnections;
+Utils::LockFreeQueue<Message::PackMessage> HPPackServer::m_RequestMessageQueue(1 << 12);
 
 HPPackServer::HPPackServer(const char *ip, unsigned int port)
 {
@@ -59,7 +59,7 @@ void HPPackServer::Start()
     strncpy(message.EventLog.App, APP_NAME, sizeof(message.EventLog.App));
     strncpy(message.EventLog.Event, errorString, sizeof(message.EventLog.Event));
     strncpy(message.EventLog.UpdateTime, Utils::getCurrentTimeUs(), sizeof(message.EventLog.UpdateTime));
-    m_RequestMessageQueue.push(message);
+    while(!m_RequestMessageQueue.Push(message));
 }
 
 void HPPackServer::Stop()
@@ -87,7 +87,7 @@ void HPPackServer::SendData(HP_CONNID dwConnID, const unsigned char *pBuffer, in
         strncpy(message.EventLog.App, APP_NAME, sizeof(message.EventLog.App));
         strncpy(message.EventLog.Event, errorString, sizeof(message.EventLog.Event));
         strncpy(message.EventLog.UpdateTime, Utils::getCurrentTimeUs(), sizeof(message.EventLog.UpdateTime));
-        m_RequestMessageQueue.push(message);
+        while(!m_RequestMessageQueue.Push(message));
     }
 }
 
@@ -162,10 +162,10 @@ En_HP_HandleResult __stdcall HPPackServer::OnReceive(HP_Server pSender, HP_CONNI
             strncpy(msg.EventLog.App, APP_NAME, sizeof(msg.EventLog.App));
             strncpy(msg.EventLog.Event, errorString, sizeof(msg.EventLog.Event));
             strncpy(msg.EventLog.UpdateTime, Utils::getCurrentTimeUs(), sizeof(msg.EventLog.UpdateTime));
-            m_RequestMessageQueue.push(msg);
+            while(!m_RequestMessageQueue.Push(msg));
         }
     }
-    m_RequestMessageQueue.push(message);
+    while(!m_RequestMessageQueue.Push(message));
     return HR_OK;
 }
 
@@ -192,7 +192,7 @@ En_HP_HandleResult __stdcall HPPackServer::OnClose(HP_Server pSender, HP_CONNID 
         strncpy(message.EventLog.App, APP_NAME, sizeof(message.EventLog.App));
         strncpy(message.EventLog.Event, errorString, sizeof(message.EventLog.Event));
         strncpy(message.EventLog.UpdateTime, Utils::getCurrentTimeUs(), sizeof(message.EventLog.UpdateTime));
-        m_RequestMessageQueue.push(message);
+        while(!m_RequestMessageQueue.Push(message));
 
         m_sConnections.erase(dwConnID);
     }

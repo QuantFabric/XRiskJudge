@@ -10,7 +10,7 @@ std::unordered_map<std::string, Message::TRiskReport> RiskEngine::m_RiskLimitMap
 
 RiskEngine::RiskEngine()
 {
-    m_HPPackServer = NULL;
+    m_RiskJudgeServer = NULL;
     m_HPPackClient = NULL;
     m_WorkThread = NULL;
 
@@ -30,12 +30,6 @@ void RiskEngine::LoadConfig(const std::string& yml)
     else
     {
         Utils::gLogger->Log->info("RiskEngine::LoadConfig successed, LoadXRiskJudgeConfig {}", yml.c_str());
-        std::vector<std::string> vec;
-        Utils::Split(m_XRiskJudgeConfig.CPUSET, ",", vec);
-        for(int i = 0; i < vec.size(); i++)
-        {
-            m_CPUSETVector.push_back(atoi(vec.at(i).c_str()));
-        }
     }
     m_RiskDBManager = Utils::Singleton<RiskDBManager>::GetInstance();
     ret = m_RiskDBManager->LoadDataBase(m_XRiskJudgeConfig.RiskDBPath, errorString);
@@ -63,20 +57,18 @@ void RiskEngine::SetCommand(const std::string& cmd)
 
 void RiskEngine::Start()
 {
-    RegisterServer(m_XRiskJudgeConfig.ServerIP.c_str(), m_XRiskJudgeConfig.ServerPort);
+    // 登陆注册XWatcher
     RegisterClient(m_XRiskJudgeConfig.XWatcherIP.c_str(), m_XRiskJudgeConfig.XWatcherPort);
+
+    Utils::gLogger->Log->info("RiskEngine::Start {} Server", m_XRiskJudgeConfig.RiskServerName);
+    m_RiskJudgeServer = new RiskJudgeServer();
+    m_RiskJudgeServer->Start(m_XRiskJudgeConfig.RiskServerName);
 
     // Update App Status
     InitAppStatus();
     
-    m_WorkThread = new std::thread(&RiskEngine::WorkFunc, this);
+    m_WorkThread = new std::thread(&RiskEngine::WorkThreadFunc, this);
     m_WorkThread->join();
-}
-
-void RiskEngine::RegisterServer(const char *ip, unsigned int port)
-{
-    m_HPPackServer = new HPPackServer(ip, port);
-    m_HPPackServer->Start();
 }
 
 void RiskEngine::RegisterClient(const char *ip, unsigned int port)
@@ -90,18 +82,19 @@ void RiskEngine::RegisterClient(const char *ip, unsigned int port)
     m_HPPackClient->Login(login);
 }
 
-void RiskEngine::WorkFunc()
+void RiskEngine::WorkThreadFunc()
 {
-    bool ret = Utils::ThreadBind(pthread_self(), m_CPUSETVector.at(0));
-    Utils::gLogger->Log->info("RiskEngine::WorkFunc Risk Service {} Running CPU:{} BindCPU:{}",
-                                m_XRiskJudgeConfig.RiskID, m_CPUSETVector.at(0), ret);
+    Utils::gLogger->Log->info("RiskEngine::WorkThreadFunc Risk Service {} Running", m_XRiskJudgeConfig.RiskID);
+    Message::PackMessage message;
+    SHMIPC::ChannelMsg<Message::PackMessage> msg;
     while (true)
     {
-        Message::PackMessage message;
-        bool ret = m_HPPackServer->m_RequestMessageQueue.Pop(message);
+        
+        bool ret = m_RiskJudgeServer->m_RecvQueue.Pop(msg);
         if(ret)
         {
-            HandleRequest(message);
+            msg.Data.ChannelID = msg.ChannelID;
+            HandleRequest(msg.Data);
         }
         ret = m_RiskResponseQueue.Pop(message);
         if(ret)
@@ -132,9 +125,7 @@ void RiskEngine::WorkFunc()
 
 void RiskEngine::HandleRequest(Message::PackMessage& msg)
 {
-    char buffer[256] = {0};
-    sprintf(buffer, "Message Type:0X%X", msg.MessageType);
-    Utils::gLogger->Log->debug("RiskEngine::HandleRequestMessage receive message {}", buffer);
+    // Utils::gLogger->Log->debug("RiskEngine::HandleRequestMessage receive message {:#X} ChannelID:{}", msg.MessageType, msg.ChannelID);
     switch (msg.MessageType)
     {
     case Message::EMessageType::EOrderRequest:
@@ -145,6 +136,10 @@ void RiskEngine::HandleRequest(Message::PackMessage& msg)
         break;
     case Message::EMessageType::EOrderStatus:
         HandleOrderStatus(msg);
+        break;
+    case Message::EMessageType::EAccountFund:
+        break;
+    case Message::EMessageType::EAccountPosition:
         break;
     case Message::EMessageType::ELoginRequest:
         break;
@@ -164,27 +159,13 @@ void RiskEngine::HandleResponse(const Message::PackMessage& msg)
     switch (msg.MessageType)
     {
     case Message::EMessageType::EOrderRequest:
-    {
-        for (auto it = m_HPPackServer->m_sConnections.begin(); it != m_HPPackServer->m_sConnections.end(); it++)
-        {
-            if(Utils::equalWith(msg.OrderRequest.Account, it->second.Account))
-            {
-                m_HPPackServer->SendData(it->second.dwConnID, (const unsigned char*)&msg, sizeof(msg));
-                 break;
-            }
-        }
-        break;
-    }
     case Message::EMessageType::EActionRequest:
     {
-        for (auto it = m_HPPackServer->m_sConnections.begin(); it != m_HPPackServer->m_sConnections.end(); it++)
-        {
-            if(Utils::equalWith(msg.ActionRequest.Account, it->second.Account))
-            {
-                m_HPPackServer->SendData(it->second.dwConnID, (const unsigned char*)&msg, sizeof(msg));
-                break;
-            }
-        }
+        static SHMIPC::ChannelMsg<Message::PackMessage> Msg;
+        Msg.ChannelID = msg.ChannelID;
+        memcpy(&Msg.Data, &msg, sizeof(Msg.Data));
+        m_RiskJudgeServer->m_SendQueue.Push(Msg);
+        // Utils::gLogger->Log->info("RiskEngine::HandleResponse send msg to ChannelID:{}", msg.ChannelID);
         break;
     }
     case Message::EMessageType::ERiskReport:
@@ -353,6 +334,8 @@ void RiskEngine::HandleOrderRequest(Message::PackMessage& msg)
         msg.OrderRequest.ErrorID = -1;
         strncpy(msg.OrderRequest.ErrorMsg, "Risk Check Init", sizeof(msg.OrderRequest.ErrorMsg));
         while(!m_RiskResponseQueue.Push(msg));
+        Utils::gLogger->Log->info("RiskEngine::HandleOrderRequest Risk Check Init, Ticker:{} Account:{} ChannelID:{}", 
+                                    msg.OrderRequest.Ticker, msg.OrderRequest.Account, msg.ChannelID);
         return;
     }
     Check(msg);

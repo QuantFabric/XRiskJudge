@@ -12,7 +12,7 @@
 #include "Util.hpp"
 #include "Logger.h"
 #include "YMLConfig.hpp"
-#include "HPPackServer.h"
+#include "RiskJudgeServer.h"
 #include "HPPackClient.h"
 #include "RiskDBManager.hpp"
 #include "LockFreeQueue.hpp"
@@ -33,9 +33,8 @@ public:
     void SetCommand(const std::string& cmd);
     void Start();
 protected:
-    void RegisterServer(const char *ip, unsigned int port);
     void RegisterClient(const char *ip, unsigned int port);
-    void WorkFunc();
+    void WorkThreadFunc();
     void HandleRequest(Message::PackMessage& msg);
     void HandleResponse(const Message::PackMessage& msg);
     void HandleCommand(const Message::PackMessage& msg);
@@ -76,7 +75,7 @@ protected:
 public:
     static Utils::LockFreeQueue<Message::PackMessage> m_RiskResponseQueue;
 private:
-    HPPackServer* m_HPPackServer;
+    RiskJudgeServer* m_RiskJudgeServer;
     HPPackClient* m_HPPackClient;
     Utils::XRiskJudgeConfig m_XRiskJudgeConfig;
     std::thread* m_WorkThread;
@@ -90,7 +89,6 @@ private:
     RiskDBManager* m_RiskDBManager;
     static std::unordered_map<std::string, Message::TRiskReport> m_RiskLimitMap;// RiskID, TRiskReport
     std::string m_Command;
-    std::vector<int> m_CPUSETVector;
 };
 
 

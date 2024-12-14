@@ -1,8 +1,6 @@
 XRiskJudgeConfig:
-  ServerIP: 127.0.0.1
-  ServerPort: 8008
+  RiskServerName: RiskJudge
   RiskID: Risk-1
   RiskDBPath: /home/xtrader/Test/XRiskJudge/XRiskJudge.db
   XWatcherIP: 127.0.0.1
   XWatcherPort: 8001
-  CPUSET: 11,12

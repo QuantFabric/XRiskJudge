@@ -20,6 +20,7 @@
 struct ServerConf : public SHMIPC::CommonConf
 {
     static const bool Publish = false;
+    static const bool Performance = true;
 };
 
 class RiskJudgeServer : public SHMIPC::SHMServer<Message::PackMessage, ServerConf>

@@ -68,6 +68,8 @@ void RiskEngine::Start()
     InitAppStatus();
     
     m_WorkThread = new std::thread(&RiskEngine::WorkThreadFunc, this);
+
+    m_RiskJudgeServer->Join();
     m_WorkThread->join();
 }
 
@@ -86,7 +88,7 @@ void RiskEngine::WorkThreadFunc()
 {
     Utils::gLogger->Log->info("RiskEngine::WorkThreadFunc Risk Service {} Running", m_XRiskJudgeConfig.RiskID);
     Message::PackMessage message;
-    SHMIPC::ChannelMsg<Message::PackMessage> msg;
+    SHMIPC::TChannelMsg<Message::PackMessage> msg;
     while (true)
     {
         
@@ -161,7 +163,7 @@ void RiskEngine::HandleResponse(const Message::PackMessage& msg)
     case Message::EMessageType::EOrderRequest:
     case Message::EMessageType::EActionRequest:
     {
-        static SHMIPC::ChannelMsg<Message::PackMessage> Msg;
+        static SHMIPC::TChannelMsg<Message::PackMessage> Msg;
         Msg.ChannelID = msg.ChannelID;
         memcpy(&Msg.Data, &msg, sizeof(Msg.Data));
         m_RiskJudgeServer->m_SendQueue.Push(Msg);
@@ -191,9 +193,9 @@ void RiskEngine::HandleOrderStatus(const Message::PackMessage& msg)
     const Message::TOrderStatus& OrderStatus = msg.OrderStatus;
     // Add Pending Order
     {
-        if(Message::EOrderStatus::EPARTTRADED == OrderStatus.OrderStatus ||
-                Message::EOrderStatus::EEXCHANGE_ACK == OrderStatus.OrderStatus ||
-                Message::EOrderStatus::EORDER_SENDED == OrderStatus.OrderStatus)
+        if(Message::EOrderStatusType::EPARTTRADED == OrderStatus.OrderStatus ||
+                Message::EOrderStatusType::EEXCHANGE_ACK == OrderStatus.OrderStatus ||
+                Message::EOrderStatusType::EORDER_SENDED == OrderStatus.OrderStatus)
         {
             std::string OrderRef = OrderStatus.OrderRef;
             auto it = m_PendingOrderMap.find(OrderRef);
@@ -212,11 +214,11 @@ void RiskEngine::HandleOrderStatus(const Message::PackMessage& msg)
     }
     // Remove Pending Order when Order end
     {
-        if(Message::EOrderStatus::EALLTRADED == OrderStatus.OrderStatus ||
-                Message::EOrderStatus::EPARTTRADED_CANCELLED == OrderStatus.OrderStatus ||
-                Message::EOrderStatus::ECANCELLED == OrderStatus.OrderStatus ||
-                Message::EOrderStatus::EBROKER_ERROR == OrderStatus.OrderStatus ||
-                Message::EOrderStatus::EEXCHANGE_ERROR)
+        if(Message::EOrderStatusType::EALLTRADED == OrderStatus.OrderStatus ||
+                Message::EOrderStatusType::EPARTTRADED_CANCELLED == OrderStatus.OrderStatus ||
+                Message::EOrderStatusType::ECANCELLED == OrderStatus.OrderStatus ||
+                Message::EOrderStatusType::EBROKER_ERROR == OrderStatus.OrderStatus ||
+                Message::EOrderStatusType::EEXCHANGE_ERROR)
         {
             // Remove Pending Order
             {
@@ -261,9 +263,9 @@ void RiskEngine::HandleOrderStatus(const Message::PackMessage& msg)
     }
     // Update Cancelled Order Counter
     {
-        bool cancelled = Message::EOrderStatus::EPARTTRADED_CANCELLED == OrderStatus.OrderStatus ||
-                         Message::EOrderStatus::ECANCELLED == OrderStatus.OrderStatus ||
-                         Message::EOrderStatus::EEXCHANGE_ERROR == OrderStatus.OrderStatus;
+        bool cancelled = Message::EOrderStatusType::EPARTTRADED_CANCELLED == OrderStatus.OrderStatus ||
+                         Message::EOrderStatusType::ECANCELLED == OrderStatus.OrderStatus ||
+                         Message::EOrderStatusType::EEXCHANGE_ERROR == OrderStatus.OrderStatus;
         if(OrderStatus.OrderType == Message::EOrderType::ELIMIT && cancelled)
         {
             std::string Account = OrderStatus.Account;

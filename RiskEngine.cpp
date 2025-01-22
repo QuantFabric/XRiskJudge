@@ -68,7 +68,6 @@ void RiskEngine::Start()
     InitAppStatus();
     
     m_WorkThread = new std::thread(&RiskEngine::WorkThreadFunc, this);
-
     m_RiskJudgeServer->Join();
     m_WorkThread->join();
 }
@@ -88,15 +87,12 @@ void RiskEngine::WorkThreadFunc()
 {
     Utils::gLogger->Log->info("RiskEngine::WorkThreadFunc Risk Service {} Running", m_XRiskJudgeConfig.RiskID);
     Message::PackMessage message;
-    SHMIPC::TChannelMsg<Message::PackMessage> msg;
     while (true)
     {
-        
-        bool ret = m_RiskJudgeServer->m_RecvQueue.Pop(msg);
+        bool ret = m_RiskJudgeServer->Pop(message);
         if(ret)
         {
-            msg.Data.ChannelID = msg.ChannelID;
-            HandleRequest(msg.Data);
+            HandleRequest(message);
         }
         ret = m_RiskResponseQueue.Pop(message);
         if(ret)
@@ -127,7 +123,7 @@ void RiskEngine::WorkThreadFunc()
 
 void RiskEngine::HandleRequest(Message::PackMessage& msg)
 {
-    // Utils::gLogger->Log->debug("RiskEngine::HandleRequestMessage receive message {:#X} ChannelID:{}", msg.MessageType, msg.ChannelID);
+    Utils::gLogger->Log->info("RiskEngine::HandleRequestMessage receive message {:#X} ChannelID:{}", msg.MessageType, msg.ChannelID);
     switch (msg.MessageType)
     {
     case Message::EMessageType::EOrderRequest:
@@ -163,11 +159,8 @@ void RiskEngine::HandleResponse(const Message::PackMessage& msg)
     case Message::EMessageType::EOrderRequest:
     case Message::EMessageType::EActionRequest:
     {
-        static SHMIPC::TChannelMsg<Message::PackMessage> Msg;
-        Msg.ChannelID = msg.ChannelID;
-        memcpy(&Msg.Data, &msg, sizeof(Msg.Data));
-        m_RiskJudgeServer->m_SendQueue.Push(Msg);
-        // Utils::gLogger->Log->info("RiskEngine::HandleResponse send msg to ChannelID:{}", msg.ChannelID);
+        m_RiskJudgeServer->Push(msg);
+        Utils::gLogger->Log->info("RiskEngine::HandleResponse send msg to ChannelID:{}", msg.ChannelID);
         break;
     }
     case Message::EMessageType::ERiskReport:

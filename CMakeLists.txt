@@ -4,7 +4,7 @@ PROJECT(XRiskJudge)
 set(CMAKE_CXX_FLAGS "-fPIC")
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
-SET(AppVersion 0.9.0)
+SET(AppVersion 0.9.1)
 SET(XRiskJudge_Version ${PROJECT_NAME}_${AppVersion})
 
 # 默认输出debug版
@@ -12,6 +12,10 @@ SET(XRiskJudge_Version ${PROJECT_NAME}_${AppVersion})
 #SET(CMAKE_BUILD_TYPE "debug")
 SET(CMAKE_BUILD_TYPE "RelWithDebInfo")
 set(CMAKE_CXX_STANDARD 17)
+
+add_definitions(-DFMT_HEADER_ONLY)
+add_definitions(-DFMTLOG_HEADER_ONLY)
+add_definitions(-D_GLIBCXX_USE_CXX11_ABI=0)
 
 macro(Get_CommitID APP_COMMITID)   
     find_package(Git QUIET)     # 查找Git，QUIET静默方式不报错
@@ -58,9 +62,9 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../Utils/)
 # HP-Scoket
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../XAPI/HP-Socket/5.8.2/include/)
 link_directories(${CMAKE_CURRENT_SOURCE_DIR}/../XAPI/HP-Socket/5.8.2/lib)
-# SPDLog
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../XAPI/SPDLog/1.8.5/include/)
-link_directories(${CMAKE_CURRENT_SOURCE_DIR}/../XAPI/SPDLog/1.8.5/lib)
+# FMTLogger
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../XAPI/FMTLogger/include/)
+link_directories(${CMAKE_CURRENT_SOURCE_DIR}/../XAPI/FMTLogger/lib)
 # YAML-CPP
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../XAPI/YAML-CPP/0.8.0/include/)
 link_directories(${CMAKE_CURRENT_SOURCE_DIR}/../XAPI/YAML-CPP/0.8.0/lib)
@@ -73,8 +77,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../XAPI/parallel_hashmap/)
 set(SOURCES main.cpp 
             RiskEngine.cpp
             RiskJudgeServer.cpp
-            HPPackClient.cpp
-            ${CMAKE_CURRENT_SOURCE_DIR}/../Utils/Logger.cpp)
+            HPPackClient.cpp)
 add_executable(${XRiskJudge_Version} ${SOURCES})
 
-target_link_libraries(${XRiskJudge_Version} spdlog pthread hpsocket4c yaml-cpp sqlite3 rt)                      
+target_link_libraries(${XRiskJudge_Version} pthread hpsocket4c yaml-cpp sqlite3 rt)                      

@@ -1,6 +1,5 @@
 #include "RiskEngine.h"
 
-extern Utils::Logger* gLogger;
 
 Utils::LockFreeQueue<Message::PackMessage> RiskEngine::m_RiskResponseQueue(1 << 12);
 XRiskLimit RiskEngine::m_XRiskLimit;
@@ -25,21 +24,21 @@ void RiskEngine::LoadConfig(const std::string& yml)
     bool ret = Utils::LoadXRiskJudgeConfig(yml.c_str(), m_XRiskJudgeConfig, errorString);
     if(!ret)
     {
-        Utils::gLogger->Log->warn("RiskEngine::LoadXRiskJudgeConfig failed, {}", errorString.c_str());
+        FMTLOG(fmtlog::WRN, "RiskEngine::LoadXRiskJudgeConfig failed, {}", errorString);
     }
     else
     {
-        Utils::gLogger->Log->info("RiskEngine::LoadConfig successed, LoadXRiskJudgeConfig {}", yml.c_str());
+        FMTLOG(fmtlog::INF, "RiskEngine::LoadConfig successed, LoadXRiskJudgeConfig {}", yml);
     }
     m_RiskDBManager = Utils::Singleton<RiskDBManager>::GetInstance();
     ret = m_RiskDBManager->LoadDataBase(m_XRiskJudgeConfig.RiskDBPath, errorString);
     if(!ret)
     {
-        Utils::gLogger->Log->warn("RiskEngine::LoadConfig LoadDataBase {} failed, {}", m_XRiskJudgeConfig.RiskDBPath, errorString.c_str());
+        FMTLOG(fmtlog::WRN, "RiskEngine::LoadConfig LoadDataBase {} failed, {}", m_XRiskJudgeConfig.RiskDBPath, errorString);
     }
     else
     {
-        Utils::gLogger->Log->info("RiskEngine::LoadConfig LoadDataBase successed, {}", m_XRiskJudgeConfig.RiskDBPath);
+        FMTLOG(fmtlog::INF, "RiskEngine::LoadConfig LoadDataBase successed, {}", m_XRiskJudgeConfig.RiskDBPath);
     }
     // Select RiskLimitTable
     QueryRiskLimit();
@@ -52,7 +51,7 @@ void RiskEngine::LoadConfig(const std::string& yml)
 void RiskEngine::SetCommand(const std::string& cmd)
 {
     m_Command = cmd;
-    Utils::gLogger->Log->info("RiskEngine::SetCommand cmd:{}", m_Command);
+    FMTLOG(fmtlog::INF, "RiskEngine::SetCommand cmd:{}", m_Command);
 }
 
 void RiskEngine::Start()
@@ -60,7 +59,7 @@ void RiskEngine::Start()
     // 登陆注册XWatcher
     RegisterClient(m_XRiskJudgeConfig.XWatcherIP.c_str(), m_XRiskJudgeConfig.XWatcherPort);
 
-    Utils::gLogger->Log->info("RiskEngine::Start {} Server", m_XRiskJudgeConfig.RiskServerName);
+    FMTLOG(fmtlog::INF, "RiskEngine::Start {} Server", m_XRiskJudgeConfig.RiskServerName);
     m_RiskJudgeServer = new RiskJudgeServer();
     m_RiskJudgeServer->Start(m_XRiskJudgeConfig.RiskServerName);
 
@@ -85,7 +84,7 @@ void RiskEngine::RegisterClient(const char *ip, unsigned int port)
 
 void RiskEngine::WorkThreadFunc()
 {
-    Utils::gLogger->Log->info("RiskEngine::WorkThreadFunc Risk Service {} Running", m_XRiskJudgeConfig.RiskID);
+    FMTLOG(fmtlog::INF, "RiskEngine::WorkThreadFunc Risk Service {} Running", m_XRiskJudgeConfig.RiskID);
     Message::PackMessage message;
     while (true)
     {
@@ -123,7 +122,7 @@ void RiskEngine::WorkThreadFunc()
 
 void RiskEngine::HandleRequest(Message::PackMessage& msg)
 {
-    Utils::gLogger->Log->info("RiskEngine::HandleRequestMessage receive message {:#X} ChannelID:{}", msg.MessageType, msg.ChannelID);
+    FMTLOG(fmtlog::INF, "RiskEngine::HandleRequestMessage receive message {:#X} ChannelID:{}", msg.MessageType, msg.ChannelID);
     switch (msg.MessageType)
     {
     case Message::EMessageType::EOrderRequest:
@@ -145,9 +144,7 @@ void RiskEngine::HandleRequest(Message::PackMessage& msg)
         m_HPPackClient->SendData((const unsigned char*)&msg, sizeof(msg));
         break;
     default:
-        char errorString[256] = {0};
-        sprintf(errorString, "RiskEngine::HandleRequestMessage Unkown Message Type:0X%X", msg.MessageType);
-        Utils::gLogger->Log->warn(errorString);
+        FMTLOG(fmtlog::WRN, "RiskEngine::HandleRequestMessage Unkown Message Type:{:#X}", msg.MessageType);
         break;
     }
 }
@@ -160,23 +157,21 @@ void RiskEngine::HandleResponse(const Message::PackMessage& msg)
     case Message::EMessageType::EActionRequest:
     {
         m_RiskJudgeServer->Push(msg);
-        Utils::gLogger->Log->info("RiskEngine::HandleResponse send msg to ChannelID:{}", msg.ChannelID);
+        FMTLOG(fmtlog::INF, "RiskEngine::HandleResponse send msg to ChannelID:{}", msg.ChannelID);
         break;
     }
     case Message::EMessageType::ERiskReport:
         m_HPPackClient->SendData((const unsigned char*)&msg, sizeof(msg));
         break;
     default:
-        char errorString[256] = {0};
-        sprintf(errorString, "RiskEngine::HandleResponseMessage Unkown Message Type:0X%X", msg.MessageType);
-        Utils::gLogger->Log->warn(errorString);
+        FMTLOG(fmtlog::WRN, "RiskEngine::HandleResponseMessage Unkown Message Type:{:#X}", msg.MessageType);
         break;
     }
 }
 
 void RiskEngine::HandleCommand(const Message::PackMessage& msg)
 {
-    Utils::gLogger->Log->info("RiskEngine::HandleCommand Command:{}", msg.Command.Command);
+    FMTLOG(fmtlog::INF, "RiskEngine::HandleCommand Command:{}", msg.Command.Command);
     // Handle Risk Command
     HandleRiskCommand(msg.Command);
 }
@@ -197,10 +192,8 @@ void RiskEngine::HandleOrderStatus(const Message::PackMessage& msg)
                 m_PendingOrderMap[OrderRef] = OrderStatus;
                 std::list<Message::TOrderStatus>& orderList = m_TickerPendingOrderListMap[OrderStatus.Ticker];
                 orderList.push_back(OrderStatus);
-                char errorString[256] = {0};
-                sprintf(errorString, "RiskEngine::HandleOrderStatus, Add Pending Order, Product:%s Account:%s Ticker:%s OrderRef:%s Pending Number:%d",
+                FMTLOG(fmtlog::INF, "RiskEngine::HandleOrderStatus, Add Pending Order, Product:{} Account:{} Ticker:{} OrderRef:{} Pending Number:{}",
                         OrderStatus.Product, OrderStatus.Account, OrderStatus.Ticker, OrderStatus.OrderRef, orderList.size());
-                Utils::gLogger->Log->info(errorString);
             }
             return;
         }
@@ -229,10 +222,10 @@ void RiskEngine::HandleOrderStatus(const Message::PackMessage& msg)
                 }
                 for(auto it = orderList.begin(); orderList.end() != it; it++)
                 {
-                    Utils::gLogger->Log->debug("RiskEngine::HandleOrderStatus Pengding Order Ticker:{} OrderRef:{}", it->Ticker, it->OrderRef);
+                    FMTLOG(fmtlog::DBG, "RiskEngine::HandleOrderStatus Pengding Order Ticker:{} OrderRef:{}", it->Ticker, it->OrderRef);
                 }
-                Utils::gLogger->Log->info("RiskEngine::HandleOrderStatus, Remove Pending Order, Product:{} Account:{} Ticker:{} OrderRef:{} Pengding Number:{}",
-                                          OrderStatus.Product, OrderStatus.Account, OrderStatus.Ticker, OrderStatus.OrderRef, orderList.size());
+                FMTLOG(fmtlog::INF, "RiskEngine::HandleOrderStatus, Remove Pending Order, Product:{} Account:{} Ticker:{} OrderRef:{} Pengding Number:{}",
+                        OrderStatus.Product, OrderStatus.Account, OrderStatus.Ticker, OrderStatus.OrderRef, orderList.size());
             }
             // Remove Pending Order
             {
@@ -312,10 +305,9 @@ void RiskEngine::HandleOrderStatus(const Message::PackMessage& msg)
                 memcpy(&message.RiskReport, &m_TickerCancelledCounterMap[Key], sizeof(message.RiskReport));
                 while(!m_RiskResponseQueue.Push(message));
             }
-            Utils::gLogger->Log->info("RiskEngine::HandleOrderStatus, Update Cancelled Order Counter, Product:{}"
-                                      "Account:{} Ticker:{} OrderRef:{} OrderStatus:{} OrderType:{} CancelledCount:{}",
-                                      OrderStatus.Product, OrderStatus.Account, OrderStatus.Ticker, OrderStatus.OrderRef,
-                                      OrderStatus.OrderStatus, OrderStatus.OrderType, CancelledCount);
+            FMTLOG(fmtlog::INF, "RiskEngine::HandleOrderStatus, Update Cancelled Order Counter, Product:{} Account:{} Ticker:{} "
+                                "OrderRef:{} OrderStatus:{} OrderType:{} CancelledCount:{}",
+                    OrderStatus.Product, OrderStatus.Account, OrderStatus.Ticker, OrderStatus.OrderRef, OrderStatus.OrderStatus, OrderStatus.OrderType, CancelledCount);
         }
     }
 }
@@ -329,8 +321,8 @@ void RiskEngine::HandleOrderRequest(Message::PackMessage& msg)
         msg.OrderRequest.ErrorID = -1;
         strncpy(msg.OrderRequest.ErrorMsg, "Risk Check Init", sizeof(msg.OrderRequest.ErrorMsg));
         while(!m_RiskResponseQueue.Push(msg));
-        Utils::gLogger->Log->info("RiskEngine::HandleOrderRequest Risk Check Init, Ticker:{} Account:{} ChannelID:{}", 
-                                    msg.OrderRequest.Ticker, msg.OrderRequest.Account, msg.ChannelID);
+        FMTLOG(fmtlog::INF, "RiskEngine::HandleOrderRequest Risk Check Init, Ticker:{} Account:{} ChannelID:{}", 
+                msg.OrderRequest.Ticker, msg.OrderRequest.Account, msg.ChannelID);
         return;
     }
     Check(msg);
@@ -424,7 +416,7 @@ bool RiskEngine::Check(Message::PackMessage& msg)
         while(!m_RiskResponseQueue.Push(msg));
     }
     int end = Utils::getTimeUs();
-    Utils::gLogger->Log->info("RiskEngine::Check Risk Check Latency:{}", end - start);
+    FMTLOG(fmtlog::INF, "RiskEngine::Check Risk Check Latency:{}", end - start);
     return ret;
 }
 
@@ -483,7 +475,7 @@ bool RiskEngine::FlowLimited(Message::PackMessage& msg)
                     msg.ActionRequest.Account, msg.ActionRequest.EngineID);
             memcpy(msg.ActionRequest.ErrorMsg, errorString, sizeof(msg.ActionRequest.ErrorMsg));
         }
-        Utils::gLogger->Log->warn("RiskEngine::FlowLimited Check failed, {}", errorString);
+        FMTLOG(fmtlog::WRN, "RiskEngine::FlowLimited Check failed, {}", errorString);
     }
     return ret;
 }
@@ -552,7 +544,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                     LockedSide.c_str(), msg.OrderRequest.ErrorID, msg.OrderRequest.Product, msg.OrderRequest.Account,
                     msg.OrderRequest.EngineID);
             memcpy(msg.OrderRequest.ErrorMsg, errorString, sizeof(msg.OrderRequest.ErrorMsg));
-            Utils::gLogger->Log->warn("RiskEngine::AccountLocked Check failed, {}", errorString);
+            FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", errorString);
         }
     }
     return ret;
@@ -565,8 +557,8 @@ bool RiskEngine::SelfMatched(Message::PackMessage& msg)
     {
         std::string Ticker = msg.OrderRequest.Ticker;
         std::list<Message::TOrderStatus>& orderList = m_TickerPendingOrderListMap[Ticker];
-        Utils::gLogger->Log->info("RiskEngine::SelfMatched Check, Ticker:{}, Pending Order Number:{}",
-                                  msg.OrderRequest.Ticker, orderList.size());
+        FMTLOG(fmtlog::INF, "RiskEngine::SelfMatched Check, Ticker:{}, Pending Order Number:{}",
+                msg.OrderRequest.Ticker, orderList.size());
         for (auto it = orderList.begin(); orderList.end() != it; it++)
         {
             switch (msg.OrderRequest.Direction)
@@ -605,7 +597,7 @@ bool RiskEngine::SelfMatched(Message::PackMessage& msg)
                 sprintf(errorString, "SelfMatched, ErrorID:0X%X Product:%s Account:%s OrderToken:%d, Matched OrderRef:%s",
                         msg.OrderRequest.ErrorID, msg.OrderRequest.Product, msg.OrderRequest.Account, msg.OrderRequest.OrderToken, it->OrderRef);
                 memcpy(msg.OrderRequest.ErrorMsg, errorString, sizeof(msg.OrderRequest.ErrorMsg));
-                Utils::gLogger->Log->warn("RiskEngine::SelfMatched Check failed, {}", errorString);
+                FMTLOG(fmtlog::WRN, "RiskEngine::SelfMatched Check failed, {}", errorString);
                 break;
             }
         }
@@ -645,7 +637,7 @@ bool RiskEngine::CancelLimited(Message::PackMessage& msg)
                             msg.ActionRequest.ErrorID, it->second.Product, it->second.Account, it->second.OrderRef,
                             CancelRequestCount, m_XRiskLimit.TickerCancelLimit);
                     memcpy(msg.ActionRequest.ErrorMsg, errorString, sizeof(msg.ActionRequest.ErrorMsg));
-                    Utils::gLogger->Log->warn("RiskEngine::CancelLimited Check failed, {}", errorString);
+                    FMTLOG(fmtlog::WRN, "RiskEngine::CancelLimited Check failed, {}", errorString);
                 }
             }
             // Order Cancelled Limit
@@ -663,7 +655,7 @@ bool RiskEngine::CancelLimited(Message::PackMessage& msg)
                             msg.ActionRequest.ErrorID, it->second.Product, it->second.Account, it->second.OrderRef,
                             CancelRequestCount, m_XRiskLimit.OrderCancelLimit);
                     memcpy(msg.ActionRequest.ErrorMsg, errorString, sizeof(msg.ActionRequest.ErrorMsg));
-                    Utils::gLogger->Log->warn("RiskEngine::CancelLimited Check failed, {}", errorString);
+                    FMTLOG(fmtlog::WRN, "RiskEngine::CancelLimited Check failed, {}", errorString);
                 }
             }
         }
@@ -673,20 +665,16 @@ bool RiskEngine::CancelLimited(Message::PackMessage& msg)
 
 void RiskEngine::PrintOrderRequest(const Message::TOrderRequest& req, const std::string& op)
 {
-    Utils::gLogger->Log->debug("RiskEngine::PrintOrderRequest, {} Product:{} Account:{} Ticker:{} OrderType:{}\n"
-                              "\t\t\t\t\t\tDirection:{} Offset:{} Price:{} Volume:{} EngineID:{} RiskStatus:{}\n"
-                              "\t\t\t\t\t\tSendTime:{} UpdateTime:{} ErrorID:{} ErrorMsg:{} RiskID:{}", op.c_str(),
-                              req.Product, req.Account, req.Ticker, req.OrderType, req.Direction,
-                              req.Offset, req.Price, req.Volume, req.EngineID, req.RiskStatus,
-                              req.SendTime, req.UpdateTime, req.ErrorID, req.ErrorMsg, req.RiskID);
+    FMTLOG(fmtlog::DBG, "RiskEngine::PrintOrderRequest, {} Product:{} Account:{} Ticker:{} OrderType:{} Direction:{} Offset:{} "
+                        "Price:{} Volume:{} EngineID:{} RiskStatus:{} SendTime:{} UpdateTime:{} ErrorID:{} ErrorMsg:{} RiskID:{}", 
+            op, req.Product, req.Account, req.Ticker, req.OrderType, req.Direction, req.Offset, req.Price, req.Volume, req.EngineID, req.RiskStatus,
+            req.SendTime, req.UpdateTime, req.ErrorID, req.ErrorMsg, req.RiskID);
 }
 
 void RiskEngine::PrintActionRequest(const Message::TActionRequest& req, const std::string& op)
 {
-    Utils::gLogger->Log->debug("RiskEngine::PrintActionRequest, {} Account:{} OrderRef:{} EngineID:{}\n"
-                              "\t\t\t\t\t\tRiskStatus:{} UpdateTime:{} ErrorID:{} ErrorMsg:{} RiskID:{}",
-                              op.c_str(), req.Account, req.OrderRef, req.EngineID, req.RiskStatus,
-                              req.UpdateTime, req.ErrorID, req.ErrorMsg, req.RiskID);
+    FMTLOG(fmtlog::DBG, "RiskEngine::PrintActionRequest, {} Account:{} OrderRef:{} EngineID:{} RiskStatus:{} UpdateTime:{} ErrorID:{} ErrorMsg:{} RiskID:{}",
+            op, req.Account, req.OrderRef, req.EngineID, req.RiskStatus, req.UpdateTime, req.ErrorID, req.ErrorMsg, req.RiskID);
 }
 
 bool RiskEngine::QueryRiskLimit()
@@ -695,7 +683,7 @@ bool RiskEngine::QueryRiskLimit()
     bool ret = m_RiskDBManager->QueryRiskLimit(&RiskEngine::sqlite3_callback_RiskLimit, errorString);
     if(!ret)
     {
-        Utils::gLogger->Log->warn("RiskEngine::QueryRiskLimit failed, {}", errorString.c_str());
+        FMTLOG(fmtlog::WRN, "RiskEngine::QueryRiskLimit failed, {}", errorString);
     }
     else
     {
@@ -717,7 +705,7 @@ bool RiskEngine::QueryLockedAccount()
     bool ret = m_RiskDBManager->QueryLockedAccount(&RiskEngine::sqlite3_callback_LockedAccount, errorString);
     if(!ret)
     {
-        Utils::gLogger->Log->warn("RiskEngine::QueryLockedAccount failed, {}", errorString.c_str());
+        FMTLOG(fmtlog::WRN, "RiskEngine::QueryLockedAccount failed, {}", errorString);
     }
     else
     {
@@ -739,7 +727,7 @@ bool RiskEngine::QueryCancelledCount()
     bool ret = m_RiskDBManager->QueryCancelledCount(&RiskEngine::sqlite3_callback_CancelledCount, errorString);
     if(!ret)
     {
-        Utils::gLogger->Log->warn("XRiskEngine::QueryCancelledCount failed, {}", errorString.c_str());
+        FMTLOG(fmtlog::WRN, "RiskEngine::QueryCancelledCount failed, {}", errorString);
     }
     else
     {
@@ -759,7 +747,7 @@ int RiskEngine::sqlite3_callback_RiskLimit(void *data, int argc, char **argv, ch
 {
     for(int i = 0; i < argc; i++)
     {
-        Utils::gLogger->Log->info("RiskEngine::sqlite3_callback_RiskLimit, {} {} = {}", (char*)data, azColName[i], argv[i]);
+        FMTLOG(fmtlog::INF, "RiskEngine::sqlite3_callback_RiskLimit, {} {} = {}", (char*)data, azColName[i], argv[i]);
         std::string colName = azColName[i];
         std::string value = argv[i];
         static std::string RiskID;
@@ -811,7 +799,7 @@ int RiskEngine::sqlite3_callback_LockedAccount(void *data, int argc, char **argv
 {
     for(int i = 0; i < argc; i++)
     {
-        Utils::gLogger->Log->info("RiskEngine::sqlite3_callback_LockedAccount, {} {} = {}", (char*)data,  azColName[i], argv[i]);
+        FMTLOG(fmtlog::INF, "RiskEngine::sqlite3_callback_LockedAccount, {} {} = {}", (char*)data,  azColName[i], argv[i]);
         std::string colName = azColName[i];
         std::string value = argv[i];
         static std::string RiskID;
@@ -859,7 +847,7 @@ int RiskEngine::sqlite3_callback_CancelledCount(void *data, int argc, char **arg
 {
     for(int i = 0; i < argc; i++)
     {
-        Utils::gLogger->Log->info("RiskEngine::sqlite3_callback_CancelledCount, {} {} = {}", (char*)data, azColName[i], argv[i]);
+        FMTLOG(fmtlog::INF, "RiskEngine::sqlite3_callback_CancelledCount, {} {} = {}", (char*)data, azColName[i], argv[i]);
         std::string colName = azColName[i];
         std::string value = argv[i];
         static std::string RiskID;
@@ -913,7 +901,7 @@ int RiskEngine::sqlite3_callback_CancelledCount(void *data, int argc, char **arg
 
 void RiskEngine::HandleRiskCommand(const Message::TCommand& command)
 {
-    Utils::gLogger->Log->info("RiskEngine::HandleRiskCommand CmdType:{}, Command:{}", command.CmdType, command.Command);
+    FMTLOG(fmtlog::INF, "RiskEngine::HandleRiskCommand CmdType:{}, Command:{}", command.CmdType, command.Command);
     std::string cmd = command.Command;
     Message::TRiskReport RiskEvent;
     memset(&RiskEvent, 0, sizeof(RiskEvent));
@@ -937,7 +925,7 @@ void RiskEngine::HandleRiskCommand(const Message::TCommand& command)
                 bool ret = m_RiskDBManager->UpdateCancelledCountTable(SQL, "UPDATE", &RiskEngine::sqlite3_callback_CancelledCount, errorString);
                 if(!ret)
                 {
-                    Utils::gLogger->Log->warn("RiskEngine::Update CancelledCountTable failed, {}, sql:{}", errorString.c_str(), SQL.c_str());
+                    FMTLOG(fmtlog::WRN, "RiskEngine::Update CancelledCountTable failed, {}, sql:{}", errorString, SQL);
                 }
                 else
                 {
@@ -957,7 +945,7 @@ void RiskEngine::HandleRiskCommand(const Message::TCommand& command)
     else if(Message::ECommandType::EUPDATE_RISK_ACCOUNT_LOCKED == command.CmdType)
     {
         std::string sql, op;
-        Utils::gLogger->Log->warn("RiskEngine::ParseUpdateLockedAccountCommand start size:{}", m_AccountLockedStatusMap.size());
+        FMTLOG(fmtlog::WRN, "RiskEngine::ParseUpdateLockedAccountCommand start size:{}", m_AccountLockedStatusMap.size());
         if(ParseUpdateLockedAccountCommand(cmd, sql, op, RiskEvent))
         {
             std::string errorString;
@@ -977,8 +965,7 @@ void RiskEngine::HandleRiskCommand(const Message::TCommand& command)
             {
                 m_AccountLockedStatusMap.erase(*it);
             }
-            Utils::gLogger->Log->warn("RiskEngine::ParseUpdateLockedAccountCommand end size:{}",
-                                      m_AccountLockedStatusMap.size());
+            FMTLOG(fmtlog::WRN, "RiskEngine::ParseUpdateLockedAccountCommand end size:{}", m_AccountLockedStatusMap.size());
         }
         {
             Message::PackMessage message;
@@ -1039,8 +1026,8 @@ bool RiskEngine::ParseUpdateLockedAccountCommand(const std::string& cmd, std::st
             {
                 ret= false;
                 sprintf(event.Event, "Account:%s not found, can't UnLock. invalid command:%s", Account.c_str(), cmd.c_str());
-                Utils::gLogger->Log->warn("RiskEngine::ParseUpdateAccountLockedCommand invalid command, Account:{} not found, can't UnLock. cmd:{}",
-                                          Account.c_str(), cmd.c_str());
+                FMTLOG(fmtlog::WRN, "RiskEngine::ParseUpdateAccountLockedCommand invalid command, Account:{} not found, can't UnLock. cmd:{}",
+                        Account, cmd);
             }
         }
         else
@@ -1069,14 +1056,14 @@ bool RiskEngine::ParseUpdateLockedAccountCommand(const std::string& cmd, std::st
             }
             sql = buffer;
         }
-        Utils::gLogger->Log->info("RiskEngine::ParseUpdateLockedAccountCommand, RiskID:{} Account:{} Ticker:{} LockSide:{} MapSize:{}",
-                                  RiskID.c_str(), Account.c_str(), Ticker.c_str(), LockSide, m_AccountLockedStatusMap.size());
+        FMTLOG(fmtlog::WRN, "RiskEngine::ParseUpdateLockedAccountCommand, RiskID:{} Account:{} Ticker:{} LockSide:{} MapSize:{}",
+                RiskID, Account, Ticker, LockSide, m_AccountLockedStatusMap.size());
     }
     else
     {
         ret = false;
         sprintf(event.Event, "invalid command:%s", cmd.c_str());
-        Utils::gLogger->Log->warn("RiskEngine::ParseUpdateAccountLockedCommand invalid command, {}", cmd.c_str());
+        FMTLOG(fmtlog::WRN, "RiskEngine::ParseUpdateAccountLockedCommand invalid command, {}", cmd);
     }
     return ret;
 }
@@ -1135,14 +1122,14 @@ bool RiskEngine::ParseUpdateRiskLimitCommand(const std::string& cmd, std::string
             sql = buffer;
             op = "UPDATE";
         }
-        Utils::gLogger->Log->info("RiskEngine::ParseUpdateRiskLimitCommand, RiskID:{} FlowLimit:{} TickerCancelLimit:{} OrderCancelLimit:{} MapSize:{}",
-                                  RiskID.c_str(), FlowLimit, TickerCancelLimit, OrderCancelLimit, m_RiskLimitMap.size());
+        FMTLOG(fmtlog::INF, "RiskEngine::ParseUpdateRiskLimitCommand, RiskID:{} FlowLimit:{} TickerCancelLimit:{} OrderCancelLimit:{} MapSize:{}",
+                RiskID, FlowLimit, TickerCancelLimit, OrderCancelLimit, m_RiskLimitMap.size());
     }
     else
     {
         ret = false;
         sprintf(event.Event, "invalid command:%s", cmd.c_str());
-        Utils::gLogger->Log->warn("RiskEngine::ParseUpdateRiskLimitCommand invalid command, {}", cmd.c_str());
+        FMTLOG(fmtlog::WRN, "RiskEngine::ParseUpdateRiskLimitCommand invalid command, {}", cmd);
     }
     return ret;
 }

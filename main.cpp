@@ -46,11 +46,8 @@ int main(int argc, char *argv[])
     {
         app_log_path = p;
     }
-    Utils::gLogger = Utils::Singleton<Utils::Logger>::GetInstance();
-    Utils::gLogger->setLogPath(app_log_path, "XRiskJudge");
-    Utils::gLogger->Init();
-    Utils::gLogger->setDebugLevel(debug);
-
+    FMTLog::Logger::Init(app_log_path, "XRiskJudge");
+    FMTLog::Logger::SetDebugLevel(debug);
     std::string cmd;
     for(int i = 0; i < argc; i++)
     {

@@ -14,7 +14,7 @@
 #include <netinet/in.h>
 #include "HPSocket4C.h"
 #include "PackMessage.hpp"
-#include "Logger.h"
+#include "FMTLogger.hpp"
 #include "LockFreeQueue.hpp"
 #include "phmap.h"
 #include <shared_mutex>

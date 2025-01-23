@@ -3,7 +3,7 @@
 
 #include "Singleton.hpp"
 #include "Util.hpp"
-#include "Logger.h"
+#include "FMTLogger.hpp"
 #include "YMLConfig.hpp"
 #include "SQLiteManager.hpp"
 
@@ -17,7 +17,7 @@ public:
         bool ret = m_DBManager->LoadDataBase(dbPath, errorString);
         if(!ret)
         {
-            Utils::gLogger->Log->warn("RiskDBManager::LoadDataBase failed, {}", errorString.c_str());
+            FMTLOG(fmtlog::WRN, "RiskDBManager::LoadDataBase failed, {}", errorString);
         }
         return ret;
     }
@@ -30,13 +30,13 @@ public:
         if(!ret)
         {
             sprintf(errorBuffer, "ErrorMsg: %s, SQL: %s", errorString.c_str(), sql.c_str());
-            Utils::gLogger->Log->warn("RiskDBManager::UpdateCancelledCountTable failed, CancelledCountTable failed, ErrorMsg:{} sql:{}",
-                                      errorString.c_str(), sql.c_str());
+            FMTLOG(fmtlog::WRN, "RiskDBManager::UpdateCancelledCountTable failed, CancelledCountTable failed, ErrorMsg:{} sql:{}",
+                    errorString, sql);
         }
         else
         {
             sprintf(errorBuffer, "SQL: %s", sql.c_str());
-            Utils::gLogger->Log->info("RiskDBManager::UpdateCancelledCountTable successed, sql:{}", sql.c_str());
+            FMTLOG(fmtlog::INF, "RiskDBManager::UpdateCancelledCountTable successed, sql:{}", sql);
         }
         errorString = errorBuffer;
         return ret;
@@ -49,12 +49,12 @@ public:
         bool ret = m_DBManager->Execute(sql, cb, op, errorString);
         if(!ret)
         {
-            Utils::gLogger->Log->warn("RiskDBManager::UpdateLockedAccountTable failed, ErrorMsg:{} sql:{}", errorString.c_str(), sql.c_str());
+            FMTLOG(fmtlog::WRN, "RiskDBManager::UpdateLockedAccountTable failed, ErrorMsg:{} sql:{}", errorString, sql);
             sprintf(errorBuffer, "ErrorMsg:%s SQL:%s", errorString.c_str(), sql.c_str());
         }
         else
         {
-            Utils::gLogger->Log->info("RiskDBManager::UpdateLockedAccountTable successed, sql:{}", sql.c_str());
+            FMTLOG(fmtlog::INF, "RiskDBManager::UpdateLockedAccountTable successed, sql:{}", sql);
             sprintf(errorBuffer, "SQL:%s", sql.c_str());
         }
         errorString = errorBuffer;
@@ -68,12 +68,12 @@ public:
         bool ret = m_DBManager->Execute(sql, cb, op, errorString);
         if(!ret)
         {
-            Utils::gLogger->Log->warn("RiskDBManager::UpdateRiskLimitTable failed, ErrorMsg:{} sql:{}", errorString.c_str(), sql.c_str());
+            FMTLOG(fmtlog::WRN, "RiskDBManager::UpdateRiskLimitTable failed, ErrorMsg:{} sql:{}", errorString, sql);
             sprintf(errorBuffer, "ErrorMsg:%s SQL:%s", errorString.c_str(), sql.c_str());
         }
         else
         {
-            Utils::gLogger->Log->info("RiskDBManager::UpdateRiskLimitTable successed, sql:{}", sql.c_str());
+            FMTLOG(fmtlog::INF, "RiskDBManager::UpdateRiskLimitTable successed, sql:{}", sql);
             sprintf(errorBuffer, "SQL:%s", sql.c_str());
         }
         errorString = errorBuffer;
@@ -86,7 +86,7 @@ public:
         bool ret = m_DBManager->Execute(SQL_SELECT_RISK_LIMIT, cb, "SELECT", errorString);
         if(!ret)
         {
-            Utils::gLogger->Log->warn("RiskDBManager::Select RiskLimitTable failed, {}", errorString.c_str());
+            FMTLOG(fmtlog::WRN, "RiskDBManager::Select RiskLimitTable failed, {}", errorString);
         }
         return ret;
     }
@@ -97,7 +97,7 @@ public:
         bool ret = m_DBManager->Execute(SQL_SELECT_LOCKED_ACCOUNT, cb, "SELECT", errorString);
         if(!ret)
         {
-            Utils::gLogger->Log->warn("RiskDBManager::Select LockedAccountTable failed, {}", errorString.c_str());
+            FMTLOG(fmtlog::WRN, "RiskDBManager::Select LockedAccountTable failed, {}", errorString);
         }
         return ret;
     }
@@ -108,7 +108,7 @@ public:
         bool ret = m_DBManager->Execute(SQL_SELECT_TICKER_LIMIT, cb, "SELECT", errorString);
         if(!ret)
         {
-            Utils::gLogger->Log->warn("RiskDBManager::Select CancelledCountTable failed, {}", errorString.c_str());
+            FMTLOG(fmtlog::WRN, "RiskDBManager::Select CancelledCountTable failed, {}", errorString);
         }
         return ret;
     }

@@ -8,7 +8,7 @@
 #include <unistd.h>
 #include <vector>
 #include "HPSocket4C.h"
-#include "Logger.h"
+#include "FMTLogger.hpp"
 #include "PackMessage.hpp"
 #include "LockFreeQueue.hpp"
 

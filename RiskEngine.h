@@ -10,7 +10,7 @@
 #include <unordered_map>
 #include "PackMessage.hpp"
 #include "Util.hpp"
-#include "Logger.h"
+#include "FMTLogger.hpp"
 #include "YMLConfig.hpp"
 #include "RiskJudgeServer.h"
 #include "HPPackClient.h"

@@ -269,10 +269,8 @@ void RiskEngine::HandleOrderStatus(const Message::PackMessage& msg)
                 strncpy(report.Account, OrderStatus.Account, sizeof(report.Account));
                 strncpy(report.Ticker, OrderStatus.Ticker, sizeof(report.Ticker));
                 // Update SQLite CancelledCountTable
-                char buffer[1024] = {0};
-                sprintf(buffer, "UPDATE CancelledCountTable SET CancelledCount=%d, Trader='%s', UpdateTime='%s' WHERE RiskID='%s' AND Account='%s' AND Ticker='%s';",
-                        report.CancelledCount, report.Trader, report.UpdateTime, report.RiskID, report.Account, report.Ticker);
-                std::string SQL = buffer;
+                std::string SQL = fmt::format("UPDATE CancelledCountTable SET CancelledCount={}, Trader='{}', UpdateTime='{}' WHERE RiskID='{}' AND Account='{}' AND Ticker='{}';",
+                                            report.CancelledCount, report.Trader, report.UpdateTime, report.RiskID, report.Account, report.Ticker);
                 std::string errorString;
                 bool ok = m_RiskDBManager->UpdateCancelledCountTable(SQL, "UPDATE", &RiskEngine::sqlite3_callback_CancelledCount, errorString);
                 strncpy(report.Event, errorString.c_str(), sizeof(report.Event));
@@ -289,10 +287,8 @@ void RiskEngine::HandleOrderStatus(const Message::PackMessage& msg)
                 strncpy(report.Ticker, OrderStatus.Ticker, sizeof(report.Ticker));
                 strncpy(report.UpdateTime, Utils::getCurrentTimeUs(), sizeof(report.UpdateTime));
                 // Update SQLite CancelledCountTable
-                char buffer[1024] = {0};
-                sprintf(buffer, "INSERT INTO CancelledCountTable(RiskID,Account,Ticker,CancelledCount,UpperLimit,Trader,UpdateTime) VALUES ('%s', '%s', '%s', %d, %d, '%s', '%s');",
-                        report.RiskID, report.Account, report.Ticker, report.CancelledCount, report.UpperLimit, report.Trader, report.UpdateTime);
-                std::string SQL = buffer;
+                std::string SQL = fmt::format("INSERT INTO CancelledCountTable(RiskID,Account,Ticker,CancelledCount,UpperLimit,Trader,UpdateTime) VALUES ('{}', '{}', '{}', {}, {}, '{}', '{}');",
+                                            report.RiskID, report.Account, report.Ticker, report.CancelledCount, report.UpperLimit, report.Trader, report.UpdateTime);
                 std::string errorString;
                 bool ok = m_RiskDBManager->UpdateCancelledCountTable(SQL, "INSERT", &RiskEngine::sqlite3_callback_CancelledCount, errorString);
                 strncpy(report.Event, errorString.c_str(), sizeof(report.Event));
@@ -398,14 +394,14 @@ bool RiskEngine::Check(Message::PackMessage& msg)
                 strncpy(RiskEvent.Account, msg.OrderRequest.Account, sizeof(RiskEvent.Account));
                 strncpy(RiskEvent.Ticker, msg.OrderRequest.Ticker, sizeof(RiskEvent.Ticker));
                 strncpy(RiskEvent.Event, msg.OrderRequest.ErrorMsg, sizeof(RiskEvent.Event));
-                sprintf(RiskEvent.Trader, "0X%X", msg.OrderRequest.EngineID);
+                fmt::format_to_n(RiskEvent.Trader, sizeof(RiskEvent.Trader), "{:#X}", msg.OrderRequest.EngineID);
                 strncpy(RiskEvent.UpdateTime, Utils::getCurrentTimeUs(), sizeof(RiskEvent.UpdateTime));
             }
             else if(Message::EMessageType::EActionRequest == msg.MessageType)
             {
                 strncpy(RiskEvent.Account, msg.ActionRequest.Account, sizeof(RiskEvent.Account));
                 strncpy(RiskEvent.Event, msg.ActionRequest.ErrorMsg, sizeof(RiskEvent.Event));
-                sprintf(RiskEvent.Trader, "0X%X", msg.ActionRequest.EngineID);
+                fmt::format_to_n(RiskEvent.Trader, sizeof(RiskEvent.Trader), "{:#X}", msg.ActionRequest.EngineID);
                 strncpy(RiskEvent.UpdateTime, Utils::getCurrentTimeUs(), sizeof(RiskEvent.UpdateTime));
             }
             memcpy(&message.RiskReport, &RiskEvent, sizeof(message.RiskReport));
@@ -461,21 +457,22 @@ bool RiskEngine::FlowLimited(Message::PackMessage& msg)
         {
             msg.OrderRequest.ErrorID =  Message::ERiskRejectedType::EFLOW_LIMITED;
             msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-            sprintf(errorString, "FlowLimited, ErrorID:0X%X flow:%d limit:%d Product:%s Account:%s EngineID:0X%X",
-                    msg.OrderRequest.ErrorID, m_AccountFlowLimitedMap[Account], m_XRiskLimit.FlowLimit,
-                    msg.OrderRequest.Product, msg.OrderRequest.Account, msg.OrderRequest.EngineID);
-            memcpy(msg.OrderRequest.ErrorMsg, errorString, sizeof(msg.OrderRequest.ErrorMsg));
+            fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg), 
+                            "FlowLimited, ErrorID:{:#X} flow:{} limit:{} Product:{} Account:{} EngineID:{:#X}",
+                            msg.OrderRequest.ErrorID, m_AccountFlowLimitedMap[Account], m_XRiskLimit.FlowLimit,
+                            msg.OrderRequest.Product, msg.OrderRequest.Account, msg.OrderRequest.EngineID);
+            FMTLOG(fmtlog::WRN, "RiskEngine::FlowLimited Check failed, {}", msg.OrderRequest.ErrorMsg);
         }
         else if(Message::EMessageType::EActionRequest == msg.MessageType)
         {
             msg.ActionRequest.ErrorID =  Message::ERiskRejectedType::EFLOW_LIMITED;
             msg.ActionRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-            sprintf(errorString, "FlowLimited, ErrorID:0X%X flow:%d limit:%d Account:%s EngineID:0X%X",
-                    msg.ActionRequest.ErrorID, m_AccountFlowLimitedMap[Account], m_XRiskLimit.FlowLimit,
-                    msg.ActionRequest.Account, msg.ActionRequest.EngineID);
-            memcpy(msg.ActionRequest.ErrorMsg, errorString, sizeof(msg.ActionRequest.ErrorMsg));
+            fmt::format_to_n(msg.ActionRequest.ErrorMsg, sizeof(msg.ActionRequest.ErrorMsg), 
+                            "FlowLimited, ErrorID:{:#X} flow:{} limit:{} Account:{} EngineID:{:#X}",
+                            msg.ActionRequest.ErrorID, m_AccountFlowLimitedMap[Account], m_XRiskLimit.FlowLimit,
+                            msg.ActionRequest.Account, msg.ActionRequest.EngineID);
+            FMTLOG(fmtlog::WRN, "RiskEngine::FlowLimited Check failed, {}", msg.ActionRequest.ErrorMsg);
         }
-        FMTLOG(fmtlog::WRN, "RiskEngine::FlowLimited Check failed, {}", errorString);
     }
     return ret;
 }
@@ -535,16 +532,15 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
     }
     if(!ret)
     {
-        char errorString[256] = {0};
         if(Message::EMessageType::EOrderRequest == msg.MessageType)
         {
             msg.OrderRequest.ErrorID =  Message::ERiskRejectedType::EACCOUNT_LOCKED;
             msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-            sprintf(errorString, "AccountLocked %s, ErrorID:0X%X Product:%s Account:%s EngineID:0X%X",
-                    LockedSide.c_str(), msg.OrderRequest.ErrorID, msg.OrderRequest.Product, msg.OrderRequest.Account,
-                    msg.OrderRequest.EngineID);
-            memcpy(msg.OrderRequest.ErrorMsg, errorString, sizeof(msg.OrderRequest.ErrorMsg));
-            FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", errorString);
+            fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg), 
+                            "AccountLocked {}, ErrorID:{:#X} Product:{} Account:{} EngineID:{:#X}",
+                            LockedSide, msg.OrderRequest.ErrorID, msg.OrderRequest.Product, msg.OrderRequest.Account,
+                            msg.OrderRequest.EngineID);
+            FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
         }
     }
     return ret;
@@ -593,11 +589,10 @@ bool RiskEngine::SelfMatched(Message::PackMessage& msg)
             {
                 msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ESELF_MATCHED;
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                char errorString[256] = {0};
-                sprintf(errorString, "SelfMatched, ErrorID:0X%X Product:%s Account:%s OrderToken:%d, Matched OrderRef:%s",
-                        msg.OrderRequest.ErrorID, msg.OrderRequest.Product, msg.OrderRequest.Account, msg.OrderRequest.OrderToken, it->OrderRef);
-                memcpy(msg.OrderRequest.ErrorMsg, errorString, sizeof(msg.OrderRequest.ErrorMsg));
-                FMTLOG(fmtlog::WRN, "RiskEngine::SelfMatched Check failed, {}", errorString);
+                fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                                "SelfMatched, ErrorID:{:#X} Product:{} Account:{} OrderToken:{}, Matched OrderRef:{}",
+                                msg.OrderRequest.ErrorID, msg.OrderRequest.Product, msg.OrderRequest.Account, msg.OrderRequest.OrderToken, it->OrderRef);
+                FMTLOG(fmtlog::WRN, "RiskEngine::SelfMatched Check failed, {}", msg.OrderRequest.ErrorMsg);
                 break;
             }
         }
@@ -632,12 +627,11 @@ bool RiskEngine::CancelLimited(Message::PackMessage& msg)
                     msg.ActionRequest.ErrorID = Message::ERiskRejectedType::ETICKER_ACTION_LIMITED;
                     msg.ActionRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
                     ret = false;
-                    char errorString[256] = {0};
-                    sprintf(errorString, "CancelLimited, ErrorID:0X%X Product:%s Account:%s OrderRef:%s, CancelRequestCount:%d Ticker Cancelled Limit:%d",
-                            msg.ActionRequest.ErrorID, it->second.Product, it->second.Account, it->second.OrderRef,
-                            CancelRequestCount, m_XRiskLimit.TickerCancelLimit);
-                    memcpy(msg.ActionRequest.ErrorMsg, errorString, sizeof(msg.ActionRequest.ErrorMsg));
-                    FMTLOG(fmtlog::WRN, "RiskEngine::CancelLimited Check failed, {}", errorString);
+                    fmt::format_to_n(msg.ActionRequest.ErrorMsg, sizeof(msg.ActionRequest.ErrorMsg), 
+                                    "CancelLimited, ErrorID:{:#X} Product:{} Account:{} OrderRef:{}, CancelRequestCount:{} Ticker Cancelled Limit:{}",
+                                    msg.ActionRequest.ErrorID, it->second.Product, it->second.Account, it->second.OrderRef,
+                                    CancelRequestCount, m_XRiskLimit.TickerCancelLimit);
+                    FMTLOG(fmtlog::WRN, "RiskEngine::CancelLimited Check failed, {}", msg.ActionRequest.ErrorMsg);
                 }
             }
             // Order Cancelled Limit
@@ -650,12 +644,11 @@ bool RiskEngine::CancelLimited(Message::PackMessage& msg)
                     msg.ActionRequest.ErrorID = Message::ERiskRejectedType::EORDER_ACTION_LIMITED;
                     msg.ActionRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
                     ret = false;
-                    char errorString[256] = {0};
-                    sprintf(errorString, "CancelLimited, ErrorID:0X%X Product:%s Account:%s OrderRef:%s, CancelRequestCount:%d Order Cancelled Limit:%d",
-                            msg.ActionRequest.ErrorID, it->second.Product, it->second.Account, it->second.OrderRef,
-                            CancelRequestCount, m_XRiskLimit.OrderCancelLimit);
-                    memcpy(msg.ActionRequest.ErrorMsg, errorString, sizeof(msg.ActionRequest.ErrorMsg));
-                    FMTLOG(fmtlog::WRN, "RiskEngine::CancelLimited Check failed, {}", errorString);
+                    fmt::format_to_n(msg.ActionRequest.ErrorMsg, sizeof(msg.ActionRequest.ErrorMsg), 
+                                    "CancelLimited, ErrorID:{:#X} Product:{} Account:{} OrderRef:{}, CancelRequestCount:{} Order Cancelled Limit:{}",
+                                    msg.ActionRequest.ErrorID, it->second.Product, it->second.Account, it->second.OrderRef,
+                                    CancelRequestCount, m_XRiskLimit.OrderCancelLimit);
+                    FMTLOG(fmtlog::WRN, "RiskEngine::CancelLimited Check failed, {}", msg.ActionRequest.ErrorMsg);
                 }
             }
         }
@@ -918,10 +911,8 @@ void RiskEngine::HandleRiskCommand(const Message::TCommand& command)
             if(ok)
             {
                 // Update CancelledCountTable
-                char buffer[256] = {0};
-                sprintf(buffer, "UPDATE CancelledCountTable SET UpperLimit=%d, Trader='%s', UpdateTime='%s' WHERE RiskID='%s';",
-                        RiskEvent.TickerCancelLimit, RiskEvent.Trader, RiskEvent.UpdateTime, RiskEvent.RiskID);
-                std::string SQL = buffer;
+                std::string SQL = fmt::format("UPDATE CancelledCountTable SET UpperLimit={}, Trader='{}', UpdateTime='{}' WHERE RiskID='{}';",
+                                                RiskEvent.TickerCancelLimit, RiskEvent.Trader, RiskEvent.UpdateTime, RiskEvent.RiskID);
                 bool ret = m_RiskDBManager->UpdateCancelledCountTable(SQL, "UPDATE", &RiskEngine::sqlite3_callback_CancelledCount, errorString);
                 if(!ret)
                 {
@@ -1016,16 +1007,14 @@ bool RiskEngine::ParseUpdateLockedAccountCommand(const std::string& cmd, std::st
             // Insert
             if(Message::ERiskLockedSide::EUNLOCK != LockSide)
             {
-                char buffer[256] = {0};
-                sprintf(buffer, "INSERT INTO LockedAccountTable(RiskID, Account, Ticker, LockedSide, Trader, UpdateTime) VALUES ('%s', '%s', '%s', %d, '%s', '%s');",
-                        RiskID.c_str(), Account.c_str(), Ticker.c_str(), LockSide, Trader.c_str(), CurrentTime.c_str());
-                sql = buffer;
+                sql = fmt::format("INSERT INTO LockedAccountTable(RiskID, Account, Ticker, LockedSide, Trader, UpdateTime) VALUES ('{}', '{}', '{}', {}, '{}', '{}');",
+                                RiskID, Account, Ticker, LockSide, Trader, CurrentTime);
                 op = "INSERT";
             }
             else
             {
                 ret= false;
-                sprintf(event.Event, "Account:%s not found, can't UnLock. invalid command:%s", Account.c_str(), cmd.c_str());
+                fmt::format_to_n(event.Event, sizeof(event.Event), "Account:{} not found, can't UnLock. invalid command:{}", Account, cmd);
                 FMTLOG(fmtlog::WRN, "RiskEngine::ParseUpdateAccountLockedCommand invalid command, Account:{} not found, can't UnLock. cmd:{}",
                         Account, cmd);
             }
@@ -1033,28 +1022,25 @@ bool RiskEngine::ParseUpdateLockedAccountCommand(const std::string& cmd, std::st
         else
         {
             // Update
-            char buffer[256] = {0};
             if(Message::ERiskLockedSide::EUNLOCK == LockSide)
             {
                 if(Message::ERiskLockedSide::EUNLOCK != it->second.LockedSide)
                 {
-                    sprintf(buffer, "DELETE FROM LockedAccountTable WHERE RiskID='%s' AND Account='%s';",
-                            RiskID.c_str(), Account.c_str());
+                    sql = fmt::format("DELETE FROM LockedAccountTable WHERE RiskID='{}' AND Account='{}';", RiskID, Account);
                     op = "DELETE";
                 }
                 else
                 {
                     ret= false;
-                    sprintf(event.Event, "Account:%s UnLocked, can't UnLock. invalid command:%s", Account.c_str(), cmd.c_str());
+                    fmt::format_to_n(event.Event, sizeof(event.Event), "Account:{} UnLocked, can't UnLock. invalid command:{}", Account, cmd);
                 }
             }
             else
             {
-                sprintf(buffer, "UPDATE LockedAccountTable SET Ticker='%s', LockedSide=%d, Trader='%s', UpdateTime='%s' WHERE RiskID='%s' AND Account='%s';",
-                        Ticker.c_str(), LockSide, Trader.c_str(), Utils::getCurrentTimeUs(), RiskID.c_str(), Account.c_str());
+                sql = fmt::format("UPDATE LockedAccountTable SET Ticker='{}', LockedSide={}, Trader='{}', UpdateTime='{}' WHERE RiskID='{}' AND Account='{}';",
+                                Ticker, LockSide, Trader, Utils::getCurrentTimeUs(), RiskID, Account);
                 op = "UPDATE";
             }
-            sql = buffer;
         }
         FMTLOG(fmtlog::WRN, "RiskEngine::ParseUpdateLockedAccountCommand, RiskID:{} Account:{} Ticker:{} LockSide:{} MapSize:{}",
                 RiskID, Account, Ticker, LockSide, m_AccountLockedStatusMap.size());
@@ -1062,7 +1048,7 @@ bool RiskEngine::ParseUpdateLockedAccountCommand(const std::string& cmd, std::st
     else
     {
         ret = false;
-        sprintf(event.Event, "invalid command:%s", cmd.c_str());
+        fmt::format_to_n(event.Event, sizeof(event.Event), "invalid command:{}", cmd);
         FMTLOG(fmtlog::WRN, "RiskEngine::ParseUpdateAccountLockedCommand invalid command, {}", cmd);
     }
     return ret;
@@ -1107,19 +1093,15 @@ bool RiskEngine::ParseUpdateRiskLimitCommand(const std::string& cmd, std::string
         if(m_RiskLimitMap.end() == it)
         {
             // Insert
-            char buffer[256] = {0};
-            sprintf(buffer, "INSERT INTO RiskLimitTable(RiskID,FlowLimit,TickerCancelLimit,OrderCancelLimit,Trader,UpdateTime) VALUES('%s',%d,%d,%d,'%s','%s');",
-                    RiskID.c_str(), FlowLimit, TickerCancelLimit, OrderCancelLimit, Trader.c_str(), CurrentTime.c_str());
-            sql = buffer;
+            sql = fmt::format("INSERT INTO RiskLimitTable(RiskID,FlowLimit,TickerCancelLimit,OrderCancelLimit,Trader,UpdateTime) VALUES('{}',{},{},{},'{}','{}');",
+                            RiskID, FlowLimit, TickerCancelLimit, OrderCancelLimit, Trader, CurrentTime);
             op = "INSERT";
         }
         else
         {
             // Update
-            char buffer[256] = {0};
-            sprintf(buffer, "UPDATE RiskLimitTable SET FlowLimit=%d,TickerCancelLimit=%d,OrderCancelLimit=%d,Trader='%s',UpdateTime='%s' WHERE RiskID='%s';",
-                    FlowLimit, TickerCancelLimit, OrderCancelLimit, Trader.c_str(), CurrentTime.c_str(), RiskID.c_str());
-            sql = buffer;
+            sql = fmt::format("UPDATE RiskLimitTable SET FlowLimit={},TickerCancelLimit={},OrderCancelLimit={},Trader='{}',UpdateTime='{}' WHERE RiskID='{}';",
+                            FlowLimit, TickerCancelLimit, OrderCancelLimit, Trader, CurrentTime, RiskID);
             op = "UPDATE";
         }
         FMTLOG(fmtlog::INF, "RiskEngine::ParseUpdateRiskLimitCommand, RiskID:{} FlowLimit:{} TickerCancelLimit:{} OrderCancelLimit:{} MapSize:{}",
@@ -1128,7 +1110,7 @@ bool RiskEngine::ParseUpdateRiskLimitCommand(const std::string& cmd, std::string
     else
     {
         ret = false;
-        sprintf(event.Event, "invalid command:%s", cmd.c_str());
+        fmt::format_to_n(event.Event, sizeof(event.Event), "invalid command:{}", cmd);
         FMTLOG(fmtlog::WRN, "RiskEngine::ParseUpdateRiskLimitCommand invalid command, {}", cmd);
     }
     return ret;
@@ -1175,9 +1157,8 @@ void RiskEngine::UpdateAppStatus(const std::string& cmd, Message::TAppStatus& Ap
     {
         AppLogPath = p;
     }
-    sprintf(command, "nohup %s > %s/%s_%s_run.log 2>&1 &", cmd.c_str(), AppLogPath.c_str(), 
-            AppName.c_str(), AppStatus.Account);
-    strncpy(AppStatus.StartScript, command, sizeof(AppStatus.StartScript));
+    fmt::format_to_n(AppStatus.StartScript, sizeof(AppStatus.StartScript), "nohup {} > {}/{}_{}_run.log 2>&1 &", 
+                    cmd, AppLogPath, AppName, AppStatus.Account);
     strncpy(AppStatus.CommitID, APP_COMMITID, sizeof(AppStatus.CommitID));
     strncpy(AppStatus.UtilsCommitID, UTILS_COMMITID, sizeof(AppStatus.UtilsCommitID));
     strncpy(AppStatus.APIVersion, API_VERSION, sizeof(AppStatus.APIVersion));

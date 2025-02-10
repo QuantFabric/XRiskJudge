@@ -18,6 +18,7 @@
 #include "LockFreeQueue.hpp"
 #include "phmap.h"
 #include <shared_mutex>
+#include <fmt/core.h>
 
 #define APP_NAME "XRiskJudge"
 

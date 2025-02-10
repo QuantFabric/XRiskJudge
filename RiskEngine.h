@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <thread>
 #include <mutex>
+#include <fmt/core.h>
 #include <unordered_map>
 #include "PackMessage.hpp"
 #include "Util.hpp"

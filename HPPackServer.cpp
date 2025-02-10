@@ -44,15 +44,16 @@ void HPPackServer::Start()
     char errorString[256] = {0};
     if (::HP_Server_Start(m_pServer, m_ServerIP.c_str(), m_ServerPort))
     {
-        sprintf(errorString, "HPPackServer::Start listen to %s:%d successed", m_ServerIP.c_str(), m_ServerPort);
-        FMTLOG(fmtlog::INF, errorString);
+        fmt::format_to_n(errorString, sizeof(errorString), "HPPackServer::Start listen to {}:{} successed", m_ServerIP, m_ServerPort);
+        FMTLOG(fmtlog::INF, "HPPackServer::Start listen to {}:{} successed", m_ServerIP, m_ServerPort);
         message.EventLog.Level = Message::EEventLogLevel::EINFO;
     }
     else
     {
-        sprintf(errorString, "HPPackServer::Start listen to %s:%d failed, error code:%d error massage:%s",
-                m_ServerIP.c_str(), m_ServerPort, ::HP_Client_GetLastError(m_pServer), HP_Client_GetLastErrorDesc(m_pServer));
-        FMTLOG(fmtlog::WRN, errorString);
+        fmt::format_to_n(errorString, sizeof(errorString), "HPPackServer::Start listen to {}:{} failed, error code:{} error massage:{}",
+                        m_ServerIP, m_ServerPort, ::HP_Client_GetLastError(m_pServer), HP_Client_GetLastErrorDesc(m_pServer));
+        FMTLOG(fmtlog::WRN, "HPPackServer::Start listen to {}:{} failed, error code:{} error massage:{}",
+                m_ServerIP, m_ServerPort, ::HP_Client_GetLastError(m_pServer), HP_Client_GetLastErrorDesc(m_pServer));
         message.EventLog.Level = Message::EEventLogLevel::EWARNING;
     }
     strncpy(message.EventLog.App, APP_NAME, sizeof(message.EventLog.App));
@@ -72,17 +73,16 @@ void HPPackServer::SendData(HP_CONNID dwConnID, const unsigned char *pBuffer, in
     bool ret = ::HP_Server_Send(m_pServer, dwConnID, pBuffer, iLength);
     if(!ret)
     {
-        char errorString[512] = {0};
-        sprintf(errorString, "HPPackServer::SendData failed, sys error:%s, error code:%d, error message:%s",
+        FMTLOG(fmtlog::WRN, "HPPackServer::SendData failed, sys error:{}, error code:{}, error message:{}",
                 SYS_GetLastErrorStr(), HP_Client_GetLastError(m_pServer), HP_Client_GetLastErrorDesc(m_pServer));
-        FMTLOG(fmtlog::WRN, errorString);
-
         Message::PackMessage message;
         memset(&message, 0, sizeof(message));
         message.MessageType = Message::EMessageType::EEventLog;
         message.EventLog.Level = Message::EEventLogLevel::EWARNING;
         strncpy(message.EventLog.App, APP_NAME, sizeof(message.EventLog.App));
-        strncpy(message.EventLog.Event, errorString, sizeof(message.EventLog.Event));
+        fmt::format_to_n(message.EventLog.Event, sizeof(message.EventLog.Event), 
+                        "HPPackServer::SendData failed, sys error:{}, error code:{}, error message:{}",
+                        SYS_GetLastErrorStr(), HP_Client_GetLastError(m_pServer), HP_Client_GetLastErrorDesc(m_pServer));
         strncpy(message.EventLog.UpdateTime, Utils::getCurrentTimeUs(), sizeof(message.EventLog.UpdateTime));
         while(!m_RequestMessageQueue.Push(message));
     }
@@ -141,11 +141,8 @@ En_HP_HandleResult __stdcall HPPackServer::OnReceive(HP_Server pSender, HP_CONNI
         {
             it->second.ClientType = message.LoginRequest.ClientType;
             strncpy(it->second.Account, message.LoginRequest.Account, sizeof(it->second.Account));
-            char errorString[512] = {0};
-            sprintf(errorString, "HPPackServer::OnReceive accept an new Client login from %s:%d, Account:%s",
+            FMTLOG(fmtlog::INF, "HPPackServer::OnReceive accept an new Client login from {}:{}, Account:{}",
                     szAddress, usPort, message.LoginRequest.Account);
-            FMTLOG(fmtlog::INF, errorString);
-
             // EventLog
             Message::PackMessage msg;
             memset(&msg, 0, sizeof(msg));
@@ -153,7 +150,9 @@ En_HP_HandleResult __stdcall HPPackServer::OnReceive(HP_Server pSender, HP_CONNI
             msg.EventLog.Level = Message::EEventLogLevel::EINFO;
             strncpy(msg.EventLog.Account, it->second.Account, sizeof(msg.EventLog.Account));
             strncpy(msg.EventLog.App, APP_NAME, sizeof(msg.EventLog.App));
-            strncpy(msg.EventLog.Event, errorString, sizeof(msg.EventLog.Event));
+            fmt::format_to_n(msg.EventLog.Event, sizeof(msg.EventLog.Event), 
+                            "HPPackServer::OnReceive accept an new Client login from {}:{}, Account:{}",
+                            szAddress, usPort, message.LoginRequest.Account);
             strncpy(msg.EventLog.UpdateTime, Utils::getCurrentTimeUs(), sizeof(msg.EventLog.UpdateTime));
             while(!m_RequestMessageQueue.Push(msg));
         }
@@ -172,10 +171,8 @@ En_HP_HandleResult __stdcall HPPackServer::OnClose(HP_Server pSender, HP_CONNID 
     auto it = m_sConnections.find(dwConnID);
     if (it != m_sConnections.end())
     {
-        char errorString[512] = {0};
-        sprintf(errorString, "HPPackServer::OnClose have an connection dwConnID:%d Account:%s from %s:%d closed",  
+        FMTLOG(fmtlog::WRN, "HPPackServer::OnClose have an connection dwConnID:{} Account:{} from {}:{} closed",  
                 dwConnID, it->second.Account, szAddress, usPort);
-        FMTLOG(fmtlog::WRN, errorString);
         // EventLog
         Message::PackMessage message;
         memset(&message, 0, sizeof(message));
@@ -183,7 +180,9 @@ En_HP_HandleResult __stdcall HPPackServer::OnClose(HP_Server pSender, HP_CONNID 
         message.EventLog.Level = Message::EEventLogLevel::EWARNING;
         strncpy(message.EventLog.Account, it->second.Account, sizeof(message.EventLog.Account));
         strncpy(message.EventLog.App, APP_NAME, sizeof(message.EventLog.App));
-        strncpy(message.EventLog.Event, errorString, sizeof(message.EventLog.Event));
+        fmt::format_to_n(message.EventLog.Event, sizeof(message.EventLog.Event), 
+                        "HPPackServer::OnClose have an connection dwConnID:{} Account:{} from {}:{} closed",  
+                        dwConnID, it->second.Account, szAddress, usPort);
         strncpy(message.EventLog.UpdateTime, Utils::getCurrentTimeUs(), sizeof(message.EventLog.UpdateTime));
         while(!m_RequestMessageQueue.Push(message));
 

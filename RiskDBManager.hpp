@@ -1,6 +1,7 @@
 #ifndef RISKDBMANAGER_HPP
 #define RISKDBMANAGER_HPP
 
+#include <fmt/core.h>
 #include "Singleton.hpp"
 #include "Util.hpp"
 #include "FMTLogger.hpp"
@@ -29,13 +30,13 @@ public:
         bool ret = m_DBManager->Execute(sql, cb, op.c_str(), errorString);
         if(!ret)
         {
-            sprintf(errorBuffer, "ErrorMsg: %s, SQL: %s", errorString.c_str(), sql.c_str());
+            fmt::format_to_n(errorBuffer, sizeof(errorBuffer), "ErrorMsg: {}, SQL: {}", errorString, sql);
             FMTLOG(fmtlog::WRN, "RiskDBManager::UpdateCancelledCountTable failed, CancelledCountTable failed, ErrorMsg:{} sql:{}",
                     errorString, sql);
         }
         else
         {
-            sprintf(errorBuffer, "SQL: %s", sql.c_str());
+            fmt::format_to_n(errorBuffer, sizeof(errorBuffer), "SQL: {}", sql);
             FMTLOG(fmtlog::INF, "RiskDBManager::UpdateCancelledCountTable successed, sql:{}", sql);
         }
         errorString = errorBuffer;
@@ -50,12 +51,12 @@ public:
         if(!ret)
         {
             FMTLOG(fmtlog::WRN, "RiskDBManager::UpdateLockedAccountTable failed, ErrorMsg:{} sql:{}", errorString, sql);
-            sprintf(errorBuffer, "ErrorMsg:%s SQL:%s", errorString.c_str(), sql.c_str());
+            fmt::format_to_n(errorBuffer, sizeof(errorBuffer), "ErrorMsg:{} SQL:{}", errorString, sql);
         }
         else
         {
             FMTLOG(fmtlog::INF, "RiskDBManager::UpdateLockedAccountTable successed, sql:{}", sql);
-            sprintf(errorBuffer, "SQL:%s", sql.c_str());
+            fmt::format_to_n(errorBuffer, sizeof(errorBuffer), "SQL:{}", sql);
         }
         errorString = errorBuffer;
         return ret;
@@ -69,12 +70,12 @@ public:
         if(!ret)
         {
             FMTLOG(fmtlog::WRN, "RiskDBManager::UpdateRiskLimitTable failed, ErrorMsg:{} sql:{}", errorString, sql);
-            sprintf(errorBuffer, "ErrorMsg:%s SQL:%s", errorString.c_str(), sql.c_str());
+            fmt::format_to_n(errorBuffer, sizeof(errorBuffer), "ErrorMsg:{} SQL:{}", errorString, sql);
         }
         else
         {
             FMTLOG(fmtlog::INF, "RiskDBManager::UpdateRiskLimitTable successed, sql:{}", sql);
-            sprintf(errorBuffer, "SQL:%s", sql.c_str());
+            fmt::format_to_n(errorBuffer, sizeof(errorBuffer), "SQL:{}", sql);
         }
         errorString = errorBuffer;
         return ret;

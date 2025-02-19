@@ -4,7 +4,7 @@ PROJECT(XRiskJudge)
 set(CMAKE_CXX_FLAGS "-fPIC")
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
-SET(AppVersion 0.9.2)
+SET(AppVersion 0.9.3)
 SET(XRiskJudge_Version ${PROJECT_NAME}_${AppVersion})
 
 # 默认输出debug版
@@ -30,6 +30,19 @@ macro(Get_CommitID APP_COMMITID)
     endif()
 endmacro() 
 
+macro(Get_SHMServerCommitID GIT_SHMSERVERCOMMITID)
+    find_package(Git QUIET)     # 查找Git，QUIET静默方式不报错
+    if(GIT_FOUND)
+      execute_process(          # 执行一个子进程
+        COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD # 命令
+        OUTPUT_VARIABLE ${GIT_SHMSERVERCOMMITID}        # 输出字符串存入变量
+        OUTPUT_STRIP_TRAILING_WHITESPACE    # 删除字符串尾的换行符
+        ERROR_QUIET                         # 对执行错误静默
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../SHMServer/ # 执行路径
+        )
+    endif()
+endmacro()
+
 macro(Get_UtilsCommitID GIT_UTILSCOMMITID)   
     find_package(Git QUIET)     # 查找Git，QUIET静默方式不报错
     if(GIT_FOUND)
@@ -47,6 +60,10 @@ set(APP_COMMITID "")
 Get_CommitID(APP_COMMITID)
 message(STATUS "AppCommitID is ${APP_COMMITID}")
 
+set(SHMSERVER_COMMITID "")
+Get_SHMServerCommitID(SHMSERVER_COMMITID)
+message(STATUS "SHMServerCommitID is ${SHMSERVER_COMMITID}")
+
 set(UTILS_COMMITID "")
 Get_UtilsCommitID(UTILS_COMMITID)
 message(STATUS "UtilsCommitID is ${UTILS_COMMITID}")
@@ -54,6 +71,7 @@ message(STATUS "UtilsCommitID is ${UTILS_COMMITID}")
 SET(APIVersion "")
 
 add_definitions(-DAPP_COMMITID=\"${APP_COMMITID}\")
+add_definitions(-DSHMSERVER_COMMITID=\"${SHMSERVER_COMMITID}\")
 add_definitions(-DUTILS_COMMITID=\"${UTILS_COMMITID}\") 
 add_definitions(-DAPI_VERSION=\"${APIVersion}\")
 
@@ -76,7 +94,6 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../XAPI/parallel_hashmap/)
 
 set(SOURCES main.cpp 
             RiskEngine.cpp
-            RiskJudgeServer.cpp
             HPPackClient.cpp)
 add_executable(${XRiskJudge_Version} ${SOURCES})
 

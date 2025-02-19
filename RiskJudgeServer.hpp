@@ -1,5 +1,5 @@
-#ifndef RISKJUDGESERVER_H
-#define RISKJUDGESERVER_H
+#ifndef RISKJUDGESERVER_HPP
+#define RISKJUDGESERVER_HPP
 
 #include <string>
 #include <stdio.h>
@@ -26,12 +26,21 @@ struct ServerConf : public SHMIPC::CommonConf
 class RiskJudgeServer : public SHMIPC::SHMServer<Message::PackMessage, ServerConf>
 {
 public:
-    RiskJudgeServer();
+    RiskJudgeServer():SHMServer<Message::PackMessage, ServerConf>()
+    {
 
-    virtual ~RiskJudgeServer();
+    }
 
-    void HandleMsg();
+    virtual ~RiskJudgeServer()
+    {
+
+    }
+
+    void HandleMsg()
+    {
+
+    }
 };
 
 
-#endif // RISKJUDGESERVER_H
+#endif // RISKJUDGESERVER_HPP

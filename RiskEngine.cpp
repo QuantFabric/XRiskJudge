@@ -1159,7 +1159,8 @@ void RiskEngine::UpdateAppStatus(const std::string& cmd, Message::TAppStatus& Ap
     }
     fmt::format_to_n(AppStatus.StartScript, sizeof(AppStatus.StartScript), "nohup {} > {}/{}_{}_run.log 2>&1 &", 
                     cmd, AppLogPath, AppName, AppStatus.Account);
-    strncpy(AppStatus.CommitID, APP_COMMITID, sizeof(AppStatus.CommitID));
+    std::string CommitID = std::string(APP_COMMITID) + ":" + SHMSERVER_COMMITID;
+    strncpy(AppStatus.CommitID, CommitID.c_str(), sizeof(AppStatus.CommitID));
     strncpy(AppStatus.UtilsCommitID, UTILS_COMMITID, sizeof(AppStatus.UtilsCommitID));
     strncpy(AppStatus.APIVersion, API_VERSION, sizeof(AppStatus.APIVersion));
     strncpy(AppStatus.StartTime, Utils::getCurrentTimeUs(), sizeof(AppStatus.StartTime));

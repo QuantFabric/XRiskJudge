@@ -13,7 +13,7 @@
 #include "Util.hpp"
 #include "FMTLogger.hpp"
 #include "YMLConfig.hpp"
-#include "RiskJudgeServer.h"
+#include "RiskJudgeServer.hpp"
 #include "HPPackClient.h"
 #include "RiskDBManager.hpp"
 #include "LockFreeQueue.hpp"

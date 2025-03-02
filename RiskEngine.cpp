@@ -84,8 +84,19 @@ void RiskEngine::RegisterClient(const char *ip, unsigned int port)
 
 void RiskEngine::WorkThreadFunc()
 {
-    FMTLOG(fmtlog::INF, "RiskEngine::WorkThreadFunc Risk Service {} Running", m_XRiskJudgeConfig.RiskID);
     Message::PackMessage message;
+    memset(&message, 0, sizeof(message));
+    message.MessageType = Message::EMessageType::EEventLog;
+    message.EventLog.Level = Message::EEventLogLevel::EINFO;
+    strncpy(message.EventLog.App, APP_NAME, sizeof(message.EventLog.App));
+    fmt::format_to_n(message.EventLog.Event, sizeof(message.EventLog.Event), 
+                    "Risk Service {} Start, RiskServerName:{}", 
+                    m_XRiskJudgeConfig.RiskID, m_XRiskJudgeConfig.RiskServerName);
+    strncpy(message.EventLog.UpdateTime, Utils::getCurrentTimeUs(), sizeof(message.EventLog.UpdateTime));
+    HandleRequest(message);
+
+    FMTLOG(fmtlog::INF, "RiskEngine::WorkThreadFunc Risk Service {} Running", m_XRiskJudgeConfig.RiskID);
+    
     while (true)
     {
         bool ret = m_RiskJudgeServer->Pop(message);

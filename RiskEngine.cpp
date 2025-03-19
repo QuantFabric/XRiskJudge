@@ -99,6 +99,7 @@ void RiskEngine::WorkThreadFunc()
     
     while (true)
     {
+        m_RiskJudgeServer->PollMsg();
         bool ret = m_RiskJudgeServer->Pop(message);
         if(ret)
         {
@@ -108,6 +109,7 @@ void RiskEngine::WorkThreadFunc()
         if(ret)
         {
             HandleResponse(message);
+            m_RiskJudgeServer->PollMsg();
         }
         ret = m_HPPackClient->m_PackMessageQueue.Pop(message);
         if(ret)
@@ -116,17 +118,6 @@ void RiskEngine::WorkThreadFunc()
             {
                 HandleCommand(message);
             }
-        }
-        static long CurrentTimeStamp = 0;
-        long Sec = Utils::getTimeStampMs(Utils::getCurrentTimeMs() + 11) / 1000;
-        if(CurrentTimeStamp < Sec)
-        {
-            CurrentTimeStamp = Sec;
-        }
-        if(CurrentTimeStamp % 10 == 0)
-        {
-            m_HPPackClient->ReConnect();
-            CurrentTimeStamp += 1;
         }
     }
 }

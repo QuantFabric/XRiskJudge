@@ -4,3 +4,4 @@ XRiskJudgeConfig:
   RiskDBPath: /home/xtrader/Test/XRiskJudge/XRiskJudge.db
   XWatcherIP: 127.0.0.1
   XWatcherPort: 8001
+  CPUSET: -1, -1

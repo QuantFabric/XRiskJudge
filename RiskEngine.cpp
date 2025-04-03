@@ -61,7 +61,7 @@ void RiskEngine::Start()
 
     FMTLOG(fmtlog::INF, "RiskEngine::Start {} Server", m_XRiskJudgeConfig.RiskServerName);
     m_RiskJudgeServer = new RiskJudgeServer();
-    m_RiskJudgeServer->Start(m_XRiskJudgeConfig.RiskServerName);
+    m_RiskJudgeServer->Start(m_XRiskJudgeConfig.RiskServerName, m_XRiskJudgeConfig.CPUSET.at(1));
 
     // Update App Status
     InitAppStatus();
@@ -84,6 +84,9 @@ void RiskEngine::RegisterClient(const char *ip, unsigned int port)
 
 void RiskEngine::WorkThreadFunc()
 {
+    bool ret = Utils::ThreadBind(pthread_self(), m_XRiskJudgeConfig.CPUSET.at(0));
+    FMTLOG(fmtlog::INF, "RiskEngine::WorkThreadFunc Risk Service {} Running CPU:{} ret:{}", m_XRiskJudgeConfig.RiskID, m_XRiskJudgeConfig.CPUSET.at(0), ret);
+
     Message::PackMessage message;
     memset(&message, 0, sizeof(message));
     message.MessageType = Message::EMessageType::EEventLog;
@@ -95,11 +98,8 @@ void RiskEngine::WorkThreadFunc()
     strncpy(message.EventLog.UpdateTime, Utils::getCurrentTimeUs(), sizeof(message.EventLog.UpdateTime));
     HandleRequest(message);
 
-    FMTLOG(fmtlog::INF, "RiskEngine::WorkThreadFunc Risk Service {} Running", m_XRiskJudgeConfig.RiskID);
-    
     while (true)
     {
-        m_RiskJudgeServer->PollMsg();
         bool ret = m_RiskJudgeServer->Pop(message);
         if(ret)
         {
@@ -109,7 +109,6 @@ void RiskEngine::WorkThreadFunc()
         if(ret)
         {
             HandleResponse(message);
-            m_RiskJudgeServer->PollMsg();
         }
         ret = m_HPPackClient->m_PackMessageQueue.Pop(message);
         if(ret)

@@ -1,5 +1,5 @@
 XRiskJudgeConfig:
-  RiskServerName: RiskJudge
+  RiskServerName: RiskServer
   RiskID: Risk-1
   RiskDBPath: /home/xtrader/Test/XRiskJudge/XRiskJudge.db
   XWatcherIP: 127.0.0.1

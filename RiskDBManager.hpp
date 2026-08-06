@@ -23,45 +23,6 @@ public:
         return ret;
     }
 
-    bool UpdateCancelledCountTable(const std::string& sql, const std::string& op, sqlite3_callback cb, std::string& errorString)
-    {
-        errorString.clear();
-        char errorBuffer[256] = {0};
-        bool ret = m_DBManager->Execute(sql, cb, op.c_str(), errorString);
-        if(!ret)
-        {
-            fmt::format_to_n(errorBuffer, sizeof(errorBuffer), "ErrorMsg: {}, SQL: {}", errorString, sql);
-            FMTLOG(fmtlog::WRN, "RiskDBManager::UpdateCancelledCountTable failed, CancelledCountTable failed, ErrorMsg:{} sql:{}",
-                    errorString, sql);
-        }
-        else
-        {
-            fmt::format_to_n(errorBuffer, sizeof(errorBuffer), "SQL: {}", sql);
-            FMTLOG(fmtlog::INF, "RiskDBManager::UpdateCancelledCountTable successed, sql:{}", sql);
-        }
-        errorString = errorBuffer;
-        return ret;
-    }
-
-    bool UpdateLockedAccountTable(const std::string& sql, const std::string& op, sqlite3_callback cb, std::string& errorString)
-    {
-        errorString.clear();
-        char errorBuffer[256] = {0};
-        bool ret = m_DBManager->Execute(sql, cb, op, errorString);
-        if(!ret)
-        {
-            FMTLOG(fmtlog::WRN, "RiskDBManager::UpdateLockedAccountTable failed, ErrorMsg:{} sql:{}", errorString, sql);
-            fmt::format_to_n(errorBuffer, sizeof(errorBuffer), "ErrorMsg:{} SQL:{}", errorString, sql);
-        }
-        else
-        {
-            FMTLOG(fmtlog::INF, "RiskDBManager::UpdateLockedAccountTable successed, sql:{}", sql);
-            fmt::format_to_n(errorBuffer, sizeof(errorBuffer), "SQL:{}", sql);
-        }
-        errorString = errorBuffer;
-        return ret;
-    }
-
     bool UpdateRiskLimitTable(const std::string& sql, const std::string& op, sqlite3_callback cb, std::string& errorString)
     {
         errorString.clear();
@@ -92,25 +53,63 @@ public:
         return ret;
     }
 
-    bool QueryLockedAccount(sqlite3_callback cb, std::string& errorString)
+    bool QueryPositionLimit(sqlite3_callback cb, std::string& errorString)
     {
-        std::string SQL_SELECT_LOCKED_ACCOUNT = "SELECT * FROM LockedAccountTable;";
-        bool ret = m_DBManager->Execute(SQL_SELECT_LOCKED_ACCOUNT, cb, "SELECT", errorString);
+        std::string SQL_SELECT_POSITION_LIMIT = "SELECT * FROM PositionLimitTable;";
+        bool ret = m_DBManager->Execute(SQL_SELECT_POSITION_LIMIT, cb, "SELECT", errorString);
         if(!ret)
         {
-            FMTLOG(fmtlog::WRN, "RiskDBManager::Select LockedAccountTable failed, {}", errorString);
+            FMTLOG(fmtlog::WRN, "RiskDBManager::Select PositionLimitTable failed, {}", errorString);
         }
         return ret;
     }
 
-    bool QueryCancelledCount(sqlite3_callback cb, std::string& errorString)
+    bool UpdatePositionLimitTable(const std::string& sql, const std::string& op, sqlite3_callback cb, std::string& errorString)
     {
-        std::string SQL_SELECT_TICKER_LIMIT = "SELECT * FROM CancelledCountTable;";
-        bool ret = m_DBManager->Execute(SQL_SELECT_TICKER_LIMIT, cb, "SELECT", errorString);
+        errorString.clear();
+        char errorBuffer[256] = {0};
+        bool ret = m_DBManager->Execute(sql, cb, op, errorString);
         if(!ret)
         {
-            FMTLOG(fmtlog::WRN, "RiskDBManager::Select CancelledCountTable failed, {}", errorString);
+            FMTLOG(fmtlog::WRN, "RiskDBManager::UpdatePositionLimitTable failed, ErrorMsg:{} sql:{}", errorString, sql);
+            fmt::format_to_n(errorBuffer, sizeof(errorBuffer), "ErrorMsg:{} SQL:{}", errorString, sql);
         }
+        else
+        {
+            FMTLOG(fmtlog::INF, "RiskDBManager::UpdatePositionLimitTable successed, sql:{}", sql);
+            fmt::format_to_n(errorBuffer, sizeof(errorBuffer), "SQL:{}", sql);
+        }
+        errorString = errorBuffer;
+        return ret;
+    }
+
+    bool QueryAccountLocked(sqlite3_callback cb, std::string& errorString)
+    {
+        std::string SQL_SELECT = "SELECT * FROM AccountLockedTable;";
+        bool ret = m_DBManager->Execute(SQL_SELECT, cb, "SELECT", errorString);
+        if(!ret)
+        {
+            FMTLOG(fmtlog::WRN, "RiskDBManager::Select AccountLockedTable failed, {}", errorString);
+        }
+        return ret;
+    }
+
+    bool UpdateAccountLockedTable(const std::string& sql, const std::string& op, sqlite3_callback cb, std::string& errorString)
+    {
+        errorString.clear();
+        char errorBuffer[256] = {0};
+        bool ret = m_DBManager->Execute(sql, cb, op, errorString);
+        if(!ret)
+        {
+            FMTLOG(fmtlog::WRN, "RiskDBManager::UpdateAccountLockedTable failed, ErrorMsg:{} sql:{}", errorString, sql);
+            fmt::format_to_n(errorBuffer, sizeof(errorBuffer), "ErrorMsg:{} SQL:{}", errorString, sql);
+        }
+        else
+        {
+            FMTLOG(fmtlog::INF, "RiskDBManager::UpdateAccountLockedTable successed, sql:{}", sql);
+            fmt::format_to_n(errorBuffer, sizeof(errorBuffer), "SQL:{}", sql);
+        }
+        errorString = errorBuffer;
         return ret;
     }
 

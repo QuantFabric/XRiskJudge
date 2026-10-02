@@ -2,9 +2,9 @@
 
 
 Utils::LockFreeQueue<Message::PackMessage> RiskEngine::m_RiskResponseQueue(1 << 12);
-std::unordered_map<RiskLimitKey, Message::TRiskReport, RiskLimitKeyHash> RiskEngine::m_RiskLimitMap;
-std::unordered_map<VirtualPositionKey, Message::TRiskReport, VirtualPositionKeyHash> RiskEngine::m_StrategyPositionLimitMap;
-std::unordered_map<RiskLimitKey, Message::TRiskReport, RiskLimitKeyHash> RiskEngine::m_AccountLockedMap;
+phmap::flat_hash_map<RiskLimitKey,Message::TRiskReport,RiskLimitKeyHash> RiskEngine::m_RiskLimitMap;
+phmap::flat_hash_map<VirtualPositionKey,Message::TRiskReport,VirtualPositionKeyHash> RiskEngine::m_StrategyPositionLimitMap;
+phmap::flat_hash_map<RiskLimitKey,Message::TRiskReport,RiskLimitKeyHash> RiskEngine::m_AccountLockedMap;
 
 
 RiskEngine::RiskEngine()
@@ -514,7 +514,7 @@ bool RiskEngine::FlowLimited(Message::PackMessage& msg)
                     msg.OrderRequest.ErrorID =  Message::ERiskRejectedType::EREQUEST_LIMITED;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
                     fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg), 
-                                    "OrderRequest FlowLimited, Account:{} Ticker:{} OrderCount:{} OrderLimit:{}",
+                                    "OrderRequest Limited, Account:{} Ticker:{} OrderCount:{} OrderLimit:{}",
                                     msg.OrderRequest.Account, msg.OrderRequest.Ticker, limitIt->second.OrderCount + 1, limitIt->second.OrderLimit);
                     FMTLOG(fmtlog::WRN, "RiskEngine::FlowLimited Check failed, {}", msg.OrderRequest.ErrorMsg);
                 }
@@ -523,7 +523,7 @@ bool RiskEngine::FlowLimited(Message::PackMessage& msg)
                     msg.ActionRequest.ErrorID =  Message::ERiskRejectedType::EREQUEST_LIMITED;
                     msg.ActionRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
                     fmt::format_to_n(msg.ActionRequest.ErrorMsg, sizeof(msg.ActionRequest.ErrorMsg), 
-                                    "ActionRequest FlowLimited, Account:{} OrderRef:{} OrderCount:{} OrderLimit:{}",
+                                    "ActionRequest Limited, Account:{} OrderRef:{} OrderCount:{} OrderLimit:{}",
                                     msg.ActionRequest.Account, msg.ActionRequest.OrderRef, limitIt->second.OrderCount + 1, limitIt->second.OrderLimit);
                     FMTLOG(fmtlog::WRN, "RiskEngine::FlowLimited Check failed, {}", msg.ActionRequest.ErrorMsg);
                 }
@@ -1035,7 +1035,6 @@ bool RiskEngine::StrategyPositionLimitCheck(Message::PackMessage& msg)
                                 key.Account,key.Ticker,  key.EngineID, longVolume, volume, positionIt->second.LongLimit);
                 FMTLOG(fmtlog::WRN, "StrategyPositionLimitCheck failed, {}", msg.OrderRequest.ErrorMsg);
             }
-                
         } 
         else 
         { 
@@ -1048,8 +1047,7 @@ bool RiskEngine::StrategyPositionLimitCheck(Message::PackMessage& msg)
                                 "StrategyPositionLimit exceeded, Account:{} Ticker:{} EngineID:{} Short:{} Volume:{} ShortLimit:{}",
                                 key.Account, key.Ticker, key.EngineID, shortVolume, volume, positionIt->second.ShortLimit);
                 FMTLOG(fmtlog::WRN, "StrategyPositionLimitCheck failed, {}", msg.OrderRequest.ErrorMsg);
-            }
-                
+            }   
         }
     }
     else

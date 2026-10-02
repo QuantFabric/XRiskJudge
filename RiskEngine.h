@@ -11,6 +11,7 @@
 #include <mutex>
 #include <fmt/core.h>
 #include <unordered_map>
+#include "phmap.h"
 #include "PackMessage.hpp"
 #include "Util.hpp"
 #include "FMTLogger.hpp"
@@ -159,19 +160,20 @@ private:
     HPPackClient* m_HPPackClient;
     Utils::XRiskJudgeConfig m_XRiskJudgeConfig;
     std::thread* m_WorkThread;
-    std::unordered_map<std::string, Message::TOrderStatus> m_PendingOrderMap;// OrderRef, TOrderStatus
-    std::unordered_map<std::string, std::list<Message::TOrderStatus>> m_TickerPendingOrderListMap;// Ticker, OrderList
-    std::unordered_map<std::string, int> m_OrderCancelledCounterMap;// OrderRef, Cancelled Count
-    std::unordered_map<std::string, int> m_AccountFlowLimitedMap;// Account, flow counter
+    phmap::flat_hash_map<std::string,Message::TOrderStatus,phmap::priv::hash_default_hash<std::string>> m_PendingOrderMap;// OrderRef, TOrderStatus
+    phmap::flat_hash_map<std::string,std::list<Message::TOrderStatus>,phmap::priv::hash_default_hash<std::string>> m_TickerPendingOrderListMap; // Ticker, OrderList
+    phmap::flat_hash_map<std::string,int,phmap::priv::hash_default_hash<std::string>> m_OrderCancelledCounterMap;// OrderRef, Cancelled Count
+    phmap::flat_hash_map<std::string,int,phmap::priv::hash_default_hash<std::string>> m_AccountFlowLimitedMap;// Account, flow counter
     RiskDBManager* m_RiskDBManager;
     std::string m_Command;
     // 风控限制：Account, Ticker -> TRiskReport
-    static std::unordered_map<RiskLimitKey, Message::TRiskReport, RiskLimitKeyHash> m_RiskLimitMap;
+    static phmap::flat_hash_map<RiskLimitKey,Message::TRiskReport,RiskLimitKeyHash> m_RiskLimitMap;
     // 策略持仓上限：Account, Ticker, EngineID -> TRiskReport
-    static std::unordered_map<VirtualPositionKey, Message::TRiskReport, VirtualPositionKeyHash> m_StrategyPositionLimitMap;
+    static phmap::flat_hash_map<VirtualPositionKey,Message::TRiskReport,VirtualPositionKeyHash> m_StrategyPositionLimitMap;
     // 风控限制：Account, Ticker -> TRiskReport
-    static std::unordered_map<RiskLimitKey, Message::TRiskReport, RiskLimitKeyHash> m_AccountLockedMap;
-    std::unordered_map<std::string, Utils::TickerProperty> m_TickerPropertyMap;
+    static phmap::flat_hash_map<RiskLimitKey,Message::TRiskReport,RiskLimitKeyHash> m_AccountLockedMap;
+
+    phmap::flat_hash_map<std::string,Utils::TickerProperty,phmap::priv::hash_default_hash<std::string>> m_TickerPropertyMap;
 };
 
 

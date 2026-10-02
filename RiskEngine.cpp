@@ -2,9 +2,9 @@
 
 
 Utils::LockFreeQueue<Message::PackMessage> RiskEngine::m_RiskResponseQueue(1 << 12);
-phmap::flat_hash_map<RiskLimitKey,Message::TRiskReport,RiskLimitKeyHash> RiskEngine::m_RiskLimitMap;
-phmap::flat_hash_map<VirtualPositionKey,Message::TRiskReport,VirtualPositionKeyHash> RiskEngine::m_StrategyPositionLimitMap;
-phmap::flat_hash_map<RiskLimitKey,Message::TRiskReport,RiskLimitKeyHash> RiskEngine::m_AccountLockedMap;
+phmap::node_hash_map<RiskLimitKey,Message::TRiskReport,RiskLimitKeyHash> RiskEngine::m_RiskLimitMap;
+phmap::node_hash_map<VirtualPositionKey,Message::TRiskReport,VirtualPositionKeyHash> RiskEngine::m_StrategyPositionLimitMap;
+phmap::node_hash_map<RiskLimitKey,Message::TRiskReport,RiskLimitKeyHash> RiskEngine::m_AccountLockedMap;
 
 
 RiskEngine::RiskEngine()
@@ -89,7 +89,7 @@ void RiskEngine::RegisterClient(const char *ip, unsigned int port)
     sleep(1);
     Message::TLoginRequest login;
     login.ClientType = Message::EClientType::EXRISKJUDGE;
-    strncpy(login.Account, APP_NAME, sizeof(login.Account));
+    fmt::format_to_n(login.Account, sizeof(login.Account), "{}", APP_NAME);
     m_HPPackClient->Login(login);
 }
 
@@ -102,11 +102,11 @@ void RiskEngine::WorkThreadFunc()
     memset(&message, 0, sizeof(message));
     message.MessageType = Message::EMessageType::EEventLog;
     message.EventLog.Level = Message::EEventLogLevel::EINFO;
-    strncpy(message.EventLog.App, APP_NAME, sizeof(message.EventLog.App));
+    fmt::format_to_n(message.EventLog.App, sizeof(message.EventLog.App), "{}", APP_NAME);
     fmt::format_to_n(message.EventLog.Event, sizeof(message.EventLog.Event), 
                     "Risk Service {} Start, RiskServerName:{}", 
                     m_XRiskJudgeConfig.RiskID, m_XRiskJudgeConfig.RiskServerName);
-    strncpy(message.EventLog.UpdateTime, Utils::getCurrentTimeUs(), sizeof(message.EventLog.UpdateTime));
+    fmt::format_to_n(message.EventLog.UpdateTime, sizeof(message.EventLog.UpdateTime), "{}", Utils::getCurrentTimeUs());
     HandleRequest(message);
 
     while (true)
@@ -320,9 +320,9 @@ void RiskEngine::HandleOrderRequest(Message::PackMessage& msg)
     // 风控初始化检查
     if(Message::EMessageType::EOrderRequest == msg.MessageType && Message::ERiskStatusType::ECHECK_INIT == msg.OrderRequest.RiskStatus)
     {
-        strncpy(msg.OrderRequest.RiskID, m_XRiskJudgeConfig.RiskID.c_str(), sizeof(msg.OrderRequest.RiskID));
+        fmt::format_to_n(msg.OrderRequest.RiskID, sizeof(msg.OrderRequest.RiskID), "{}", m_XRiskJudgeConfig.RiskID);
         msg.OrderRequest.ErrorID = -1;
-        strncpy(msg.OrderRequest.ErrorMsg, "Risk Check Init", sizeof(msg.OrderRequest.ErrorMsg));
+        fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg), "{}", "Risk Check Init");
         while(!m_RiskResponseQueue.Push(msg));
         FMTLOG(fmtlog::INF, "RiskEngine::HandleOrderRequest Risk Check Init, Ticker:{} Account:{} ChannelID:{}", 
                 msg.OrderRequest.Ticker, msg.OrderRequest.Account, msg.ChannelID);
@@ -383,12 +383,12 @@ bool RiskEngine::Check(Message::PackMessage& msg)
             if(Message::EMessageType::EOrderRequest == msg.MessageType)
             {
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_PASS;
-                strncpy(msg.OrderRequest.RiskID, m_XRiskJudgeConfig.RiskID.c_str(), sizeof(msg.OrderRequest.RiskID));
+                fmt::format_to_n(msg.OrderRequest.RiskID, sizeof(msg.OrderRequest.RiskID), "{}", m_XRiskJudgeConfig.RiskID);
             }
             else if(Message::EMessageType::EActionRequest == msg.MessageType)
             {
                 msg.ActionRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_PASS;
-                strncpy(msg.ActionRequest.RiskID, m_XRiskJudgeConfig.RiskID.c_str(), sizeof(msg.ActionRequest.RiskID));
+                fmt::format_to_n(msg.ActionRequest.RiskID, sizeof(msg.ActionRequest.RiskID), "{}", m_XRiskJudgeConfig.RiskID);
             }
         }
         else
@@ -396,12 +396,12 @@ bool RiskEngine::Check(Message::PackMessage& msg)
             if(Message::EMessageType::EOrderRequest == msg.MessageType)
             {
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                strncpy(msg.OrderRequest.RiskID, m_XRiskJudgeConfig.RiskID.c_str(), sizeof(msg.OrderRequest.RiskID));
+                fmt::format_to_n(msg.OrderRequest.RiskID, sizeof(msg.OrderRequest.RiskID), "{}", m_XRiskJudgeConfig.RiskID);
             }
             else if(Message::EMessageType::EActionRequest == msg.MessageType)
             {
                 msg.ActionRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                strncpy(msg.ActionRequest.RiskID, m_XRiskJudgeConfig.RiskID.c_str(), sizeof(msg.ActionRequest.RiskID));
+                fmt::format_to_n(msg.ActionRequest.RiskID, sizeof(msg.ActionRequest.RiskID), "{}", m_XRiskJudgeConfig.RiskID);
             }
             Message::PackMessage message;
             memset(&message, 0, sizeof(message));
@@ -409,21 +409,21 @@ bool RiskEngine::Check(Message::PackMessage& msg)
             Message::TRiskReport RiskEvent;
             memset(&RiskEvent, 0, sizeof(RiskEvent));
             RiskEvent.ReportType = Message::ERiskReportType::ERISK_EVENTLOG;
-            strncpy(RiskEvent.RiskID, m_XRiskJudgeConfig.RiskID.c_str(), sizeof(RiskEvent.RiskID));
+            fmt::format_to_n(RiskEvent.RiskID, sizeof(RiskEvent.RiskID), "{}", m_XRiskJudgeConfig.RiskID);
             if(Message::EMessageType::EOrderRequest == msg.MessageType)
             {
-                strncpy(RiskEvent.Account, msg.OrderRequest.Account, sizeof(RiskEvent.Account));
-                strncpy(RiskEvent.Ticker, msg.OrderRequest.Ticker, sizeof(RiskEvent.Ticker));
-                strncpy(RiskEvent.Event, msg.OrderRequest.ErrorMsg, sizeof(RiskEvent.Event));
+                fmt::format_to_n(RiskEvent.Account, sizeof(RiskEvent.Account), "{}", msg.OrderRequest.Account);
+                fmt::format_to_n(RiskEvent.Ticker, sizeof(RiskEvent.Ticker), "{}", msg.OrderRequest.Ticker);
+                fmt::format_to_n(RiskEvent.Event, sizeof(RiskEvent.Event), "{}", msg.OrderRequest.ErrorMsg);
                 fmt::format_to_n(RiskEvent.Trader, sizeof(RiskEvent.Trader), "{:#X}", msg.OrderRequest.EngineID);
-                strncpy(RiskEvent.UpdateTime, Utils::getCurrentTimeUs(), sizeof(RiskEvent.UpdateTime));
+                fmt::format_to_n(RiskEvent.UpdateTime, sizeof(RiskEvent.UpdateTime), "{}", Utils::getCurrentTimeUs());
             }
             else if(Message::EMessageType::EActionRequest == msg.MessageType)
             {
-                strncpy(RiskEvent.Account, msg.ActionRequest.Account, sizeof(RiskEvent.Account));
-                strncpy(RiskEvent.Event, msg.ActionRequest.ErrorMsg, sizeof(RiskEvent.Event));
+                fmt::format_to_n(RiskEvent.Account, sizeof(RiskEvent.Account), "{}", msg.ActionRequest.Account);
+                fmt::format_to_n(RiskEvent.Event, sizeof(RiskEvent.Event), "{}", msg.ActionRequest.ErrorMsg);
                 fmt::format_to_n(RiskEvent.Trader, sizeof(RiskEvent.Trader), "{:#X}", msg.ActionRequest.EngineID);
-                strncpy(RiskEvent.UpdateTime, Utils::getCurrentTimeUs(), sizeof(RiskEvent.UpdateTime));
+                fmt::format_to_n(RiskEvent.UpdateTime, sizeof(RiskEvent.UpdateTime), "{}", Utils::getCurrentTimeUs());
             }
             memcpy(&message.RiskReport, &RiskEvent, sizeof(message.RiskReport));
             // 风控拦截事件报告
@@ -1882,7 +1882,7 @@ void RiskEngine::HandleRiskCommand(const Message::TCommand& command)
         {
             std::string errorString;
             bool ok = m_RiskDBManager->UpdateRiskLimitTable(sql, op, &RiskEngine::sqlite3_callback_RiskLimit, errorString);
-            strncpy(RiskEvent.Event, errorString.c_str(), sizeof(RiskEvent.Event));
+            fmt::format_to_n(RiskEvent.Event, sizeof(RiskEvent.Event), "{}", errorString);
             QueryRiskLimit();
         }
         {
@@ -1900,7 +1900,7 @@ void RiskEngine::HandleRiskCommand(const Message::TCommand& command)
         {
             std::string errorString;
             bool ok = m_RiskDBManager->UpdatePositionLimitTable(sql, op, &RiskEngine::sqlite3_callback_PositionLimit, errorString);
-            strncpy(RiskEvent.Event, errorString.c_str(), sizeof(RiskEvent.Event));
+            fmt::format_to_n(RiskEvent.Event, sizeof(RiskEvent.Event), "{}", errorString);
             QueryPositionLimit();
         }
         {
@@ -1918,7 +1918,7 @@ void RiskEngine::HandleRiskCommand(const Message::TCommand& command)
         {
             std::string errorString;
             bool ok = m_RiskDBManager->UpdateAccountLockedTable(sql, op, &RiskEngine::sqlite3_callback_AccountLocked, errorString);
-            strncpy(RiskEvent.Event, errorString.c_str(), sizeof(RiskEvent.Event));
+            fmt::format_to_n(RiskEvent.Event, sizeof(RiskEvent.Event), "{}", errorString);
             QueryAccountLocked();
         }
         {
@@ -2215,14 +2215,13 @@ void RiskEngine::UpdateAppStatus(const std::string& cmd, Message::TAppStatus& Ap
             break;
         }
     }
-    strncpy(AppStatus.Account, Account.c_str(), sizeof(AppStatus.Account));
-
+    fmt::format_to_n(AppStatus.Account, sizeof(AppStatus.Account), "{}", Account);
     std::vector<std::string> Vec;
     Utils::Split(ItemVec.at(0), "/", Vec);
     std::string AppName = Vec.at(Vec.size() - 1);
-    strncpy(AppStatus.AppName, AppName.c_str(), sizeof(AppStatus.AppName));
+    fmt::format_to_n(AppStatus.AppName, sizeof(AppStatus.AppName), "{}", AppName);
     AppStatus.PID = getpid();
-    strncpy(AppStatus.Status, "Start", sizeof(AppStatus.Status));
+    fmt::format_to_n(AppStatus.Status, sizeof(AppStatus.Status), "{}", "Start");
 
     char command[256] = {0};
     std::string AppLogPath;
@@ -2238,10 +2237,10 @@ void RiskEngine::UpdateAppStatus(const std::string& cmd, Message::TAppStatus& Ap
     fmt::format_to_n(AppStatus.StartScript, sizeof(AppStatus.StartScript), "nohup {} > {}/{}_{}_run.log 2>&1 &", 
                     cmd, AppLogPath, AppName, AppStatus.Account);
     std::string CommitID = std::string(APP_COMMITID) + ":" + SHMSERVER_COMMITID;
-    strncpy(AppStatus.CommitID, CommitID.c_str(), sizeof(AppStatus.CommitID));
-    strncpy(AppStatus.UtilsCommitID, UTILS_COMMITID, sizeof(AppStatus.UtilsCommitID));
-    strncpy(AppStatus.APIVersion, API_VERSION, sizeof(AppStatus.APIVersion));
-    strncpy(AppStatus.StartTime, Utils::getCurrentTimeUs(), sizeof(AppStatus.StartTime));
-    strncpy(AppStatus.LastStartTime, Utils::getCurrentTimeUs(), sizeof(AppStatus.LastStartTime));
-    strncpy(AppStatus.UpdateTime, Utils::getCurrentTimeUs(), sizeof(AppStatus.UpdateTime));
+    fmt::format_to_n(AppStatus.CommitID, sizeof(AppStatus.CommitID), "{}", CommitID);
+    fmt::format_to_n(AppStatus.UtilsCommitID, sizeof(AppStatus.UtilsCommitID), "{}", UTILS_COMMITID);
+    fmt::format_to_n(AppStatus.APIVersion, sizeof(AppStatus.APIVersion), "{}", API_VERSION);
+    fmt::format_to_n(AppStatus.StartTime, sizeof(AppStatus.StartTime), "{}", Utils::getCurrentTimeUs());
+    fmt::format_to_n(AppStatus.LastStartTime, sizeof(AppStatus.LastStartTime), "{}", Utils::getCurrentTimeUs());
+    fmt::format_to_n(AppStatus.UpdateTime, sizeof(AppStatus.UpdateTime), "{}", Utils::getCurrentTimeUs());
 }

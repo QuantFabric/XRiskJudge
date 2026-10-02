@@ -56,9 +56,9 @@ void HPPackServer::Start()
                 m_ServerIP, m_ServerPort, ::HP_Client_GetLastError(m_pServer), HP_Client_GetLastErrorDesc(m_pServer));
         message.EventLog.Level = Message::EEventLogLevel::EWARNING;
     }
-    strncpy(message.EventLog.App, APP_NAME, sizeof(message.EventLog.App));
-    strncpy(message.EventLog.Event, errorString, sizeof(message.EventLog.Event));
-    strncpy(message.EventLog.UpdateTime, Utils::getCurrentTimeUs(), sizeof(message.EventLog.UpdateTime));
+    fmt::format_to_n(message.EventLog.App, sizeof(message.EventLog.App), "{}", APP_NAME);
+    fmt::format_to_n(message.EventLog.Event, sizeof(message.EventLog.Event), "{}", errorString);
+    fmt::format_to_n(message.EventLog.UpdateTime, sizeof(message.EventLog.UpdateTime), "{}", Utils::getCurrentTimeUs());
     while(!m_RequestMessageQueue.Push(message));
 }
 
@@ -79,11 +79,11 @@ void HPPackServer::SendData(HP_CONNID dwConnID, const unsigned char *pBuffer, in
         memset(&message, 0, sizeof(message));
         message.MessageType = Message::EMessageType::EEventLog;
         message.EventLog.Level = Message::EEventLogLevel::EWARNING;
-        strncpy(message.EventLog.App, APP_NAME, sizeof(message.EventLog.App));
+        fmt::format_to_n(message.EventLog.App, sizeof(message.EventLog.App), "{}", APP_NAME);
         fmt::format_to_n(message.EventLog.Event, sizeof(message.EventLog.Event), 
                         "HPPackServer::SendData failed, sys error:{}, error code:{}, error message:{}",
                         SYS_GetLastErrorStr(), HP_Client_GetLastError(m_pServer), HP_Client_GetLastErrorDesc(m_pServer));
-        strncpy(message.EventLog.UpdateTime, Utils::getCurrentTimeUs(), sizeof(message.EventLog.UpdateTime));
+        fmt::format_to_n(message.EventLog.UpdateTime, sizeof(message.EventLog.UpdateTime), "{}", Utils::getCurrentTimeUs());
         while(!m_RequestMessageQueue.Push(message));
     }
 }
@@ -140,7 +140,7 @@ En_HP_HandleResult __stdcall HPPackServer::OnReceive(HP_Server pSender, HP_CONNI
         if (it != m_sConnections.end())
         {
             it->second.ClientType = message.LoginRequest.ClientType;
-            strncpy(it->second.Account, message.LoginRequest.Account, sizeof(it->second.Account));
+            fmt::format_to_n(it->second.Account, sizeof(it->second.Account), "{}", message.LoginRequest.Account);
             FMTLOG(fmtlog::INF, "HPPackServer::OnReceive accept an new Client login from {}:{}, Account:{}",
                     szAddress, usPort, message.LoginRequest.Account);
             // EventLog
@@ -148,12 +148,12 @@ En_HP_HandleResult __stdcall HPPackServer::OnReceive(HP_Server pSender, HP_CONNI
             memset(&msg, 0, sizeof(msg));
             msg.MessageType = Message::EMessageType::EEventLog;
             msg.EventLog.Level = Message::EEventLogLevel::EINFO;
-            strncpy(msg.EventLog.Account, it->second.Account, sizeof(msg.EventLog.Account));
-            strncpy(msg.EventLog.App, APP_NAME, sizeof(msg.EventLog.App));
+            fmt::format_to_n(msg.EventLog.Account, sizeof(msg.EventLog.Account), "{}", it->second.Account);
+            fmt::format_to_n(msg.EventLog.App, sizeof(msg.EventLog.App), "{}", APP_NAME);
             fmt::format_to_n(msg.EventLog.Event, sizeof(msg.EventLog.Event), 
                             "HPPackServer::OnReceive accept an new Client login from {}:{}, Account:{}",
                             szAddress, usPort, message.LoginRequest.Account);
-            strncpy(msg.EventLog.UpdateTime, Utils::getCurrentTimeUs(), sizeof(msg.EventLog.UpdateTime));
+            fmt::format_to_n(msg.EventLog.UpdateTime, sizeof(msg.EventLog.UpdateTime), "{}",  Utils::getCurrentTimeUs());
             while(!m_RequestMessageQueue.Push(msg));
         }
     }
@@ -178,12 +178,12 @@ En_HP_HandleResult __stdcall HPPackServer::OnClose(HP_Server pSender, HP_CONNID 
         memset(&message, 0, sizeof(message));
         message.MessageType = Message::EMessageType::EEventLog;
         message.EventLog.Level = Message::EEventLogLevel::EWARNING;
-        strncpy(message.EventLog.Account, it->second.Account, sizeof(message.EventLog.Account));
-        strncpy(message.EventLog.App, APP_NAME, sizeof(message.EventLog.App));
+        fmt::format_to_n(message.EventLog.Account, sizeof(message.EventLog.Account), "{}",  it->second.Account);
+        fmt::format_to_n(message.EventLog.App, sizeof(message.EventLog.App), "{}",  APP_NAME);
         fmt::format_to_n(message.EventLog.Event, sizeof(message.EventLog.Event), 
                         "HPPackServer::OnClose have an connection dwConnID:{} Account:{} from {}:{} closed",  
                         dwConnID, it->second.Account, szAddress, usPort);
-        strncpy(message.EventLog.UpdateTime, Utils::getCurrentTimeUs(), sizeof(message.EventLog.UpdateTime));
+        fmt::format_to_n(message.EventLog.UpdateTime, sizeof(message.EventLog.UpdateTime), "{}",  Utils::getCurrentTimeUs());
         while(!m_RequestMessageQueue.Push(message));
 
         m_sConnections.erase(dwConnID);

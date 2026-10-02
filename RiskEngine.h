@@ -159,19 +159,19 @@ private:
     RiskJudgeServer* m_RiskJudgeServer;
     HPPackClient* m_HPPackClient;
     Utils::XRiskJudgeConfig m_XRiskJudgeConfig;
-    std::thread* m_WorkThread;
-    phmap::flat_hash_map<std::string,Message::TOrderStatus,phmap::priv::hash_default_hash<std::string>> m_PendingOrderMap;// OrderRef, TOrderStatus
-    phmap::flat_hash_map<std::string,std::list<Message::TOrderStatus>,phmap::priv::hash_default_hash<std::string>> m_TickerPendingOrderListMap; // Ticker, OrderList
+    std::thread* m_WorkThread; 
+    phmap::node_hash_map<std::string,Message::TOrderStatus,phmap::priv::hash_default_hash<std::string>> m_PendingOrderMap;// OrderRef, TOrderStatus
+    phmap::node_hash_map<std::string,std::list<Message::TOrderStatus>,phmap::priv::hash_default_hash<std::string>> m_TickerPendingOrderListMap; // Ticker, OrderList
     phmap::flat_hash_map<std::string,int,phmap::priv::hash_default_hash<std::string>> m_OrderCancelledCounterMap;// OrderRef, Cancelled Count
     phmap::flat_hash_map<std::string,int,phmap::priv::hash_default_hash<std::string>> m_AccountFlowLimitedMap;// Account, flow counter
     RiskDBManager* m_RiskDBManager;
     std::string m_Command;
     // 风控限制：Account, Ticker -> TRiskReport
-    static phmap::flat_hash_map<RiskLimitKey,Message::TRiskReport,RiskLimitKeyHash> m_RiskLimitMap;
+    static phmap::node_hash_map<RiskLimitKey,Message::TRiskReport,RiskLimitKeyHash> m_RiskLimitMap;
     // 策略持仓上限：Account, Ticker, EngineID -> TRiskReport
-    static phmap::flat_hash_map<VirtualPositionKey,Message::TRiskReport,VirtualPositionKeyHash> m_StrategyPositionLimitMap;
+    static phmap::node_hash_map<VirtualPositionKey,Message::TRiskReport,VirtualPositionKeyHash> m_StrategyPositionLimitMap;
     // 风控限制：Account, Ticker -> TRiskReport
-    static phmap::flat_hash_map<RiskLimitKey,Message::TRiskReport,RiskLimitKeyHash> m_AccountLockedMap;
+    static phmap::node_hash_map<RiskLimitKey,Message::TRiskReport,RiskLimitKeyHash> m_AccountLockedMap;
 
     phmap::flat_hash_map<std::string,Utils::TickerProperty,phmap::priv::hash_default_hash<std::string>> m_TickerPropertyMap;
 };

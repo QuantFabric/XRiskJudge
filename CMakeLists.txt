@@ -15,7 +15,7 @@ set(CMAKE_CXX_STANDARD 17)
 
 add_definitions(-DFMT_HEADER_ONLY)
 add_definitions(-DFMTLOG_HEADER_ONLY)
-add_definitions(-D_GLIBCXX_USE_CXX11_ABI=1)
+add_definitions(-D_GLIBCXX_USE_CXX11_ABI=0)
 
 macro(Get_CommitID APP_COMMITID)   
     find_package(Git QUIET)     # 查找Git，QUIET静默方式不报错
@@ -84,8 +84,8 @@ link_directories(${CMAKE_CURRENT_SOURCE_DIR}/../XAPI/HP-Socket/5.8.2/lib)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../XAPI/FMTLogger/include/)
 link_directories(${CMAKE_CURRENT_SOURCE_DIR}/../XAPI/FMTLogger/lib)
 # YAML-CPP
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../XAPI/YAML-CPP/0.8.0/include/)
-link_directories(${CMAKE_CURRENT_SOURCE_DIR}/../XAPI/YAML-CPP/0.8.0/lib)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../XAPI/YAML-CPP/0.9.0/include/)
+link_directories(${CMAKE_CURRENT_SOURCE_DIR}/../XAPI/YAML-CPP/0.9.0/lib)
 # SHMServer
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../SHMServer/)
 

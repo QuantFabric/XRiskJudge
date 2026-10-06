@@ -150,7 +150,7 @@ protected:
     // 账户锁定命令解析
     bool ParseUpdatePositionLimitCommand(const std::string& cmd, int cmdType, std::string& sql, std::string& op, Message::TRiskReport& event);
     // 账户锁定命令解析
-    bool ParseUpdateAccountLockedCommand(const std::string& cmd, std::string& sql, std::string& op, Message::TRiskReport& event);
+    bool ParseUpdateAccountLockedCommand(const std::string& cmd, int cmdType, std::string& sql, std::string& op, Message::TRiskReport& event);
     void InitAppStatus();
     static void UpdateAppStatus(const std::string& cmd, Message::TAppStatus& AppStatus);
 public:

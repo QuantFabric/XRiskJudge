@@ -1883,7 +1883,7 @@ void RiskEngine::HandleRiskCommand(const Message::TCommand& command)
             std::string errorString;
             bool ok = m_RiskDBManager->UpdateRiskLimitTable(sql, op, &RiskEngine::sqlite3_callback_RiskLimit, errorString);
             fmt::format_to_n(RiskEvent.Event, sizeof(RiskEvent.Event), "{}", errorString);
-            QueryRiskLimit();
+            // QueryRiskLimit();
         }
         {
             Message::PackMessage message;
@@ -1901,7 +1901,7 @@ void RiskEngine::HandleRiskCommand(const Message::TCommand& command)
             std::string errorString;
             bool ok = m_RiskDBManager->UpdatePositionLimitTable(sql, op, &RiskEngine::sqlite3_callback_PositionLimit, errorString);
             fmt::format_to_n(RiskEvent.Event, sizeof(RiskEvent.Event), "{}", errorString);
-            QueryPositionLimit();
+            // QueryPositionLimit();
         }
         {
             Message::PackMessage message;
@@ -1911,15 +1911,15 @@ void RiskEngine::HandleRiskCommand(const Message::TCommand& command)
             while(!m_RiskResponseQueue.Push(message));
         }
     }
-    else if(Message::ECommandType::EUPDATE_RISK_ACCOUNT_LOCKED == command.CmdType)
+    else if(Message::ECommandType::EUPDATE_RISK_ACCOUNT_LOCKED == command.CmdType || Message::ECommandType::EDELETE_RISK_ACCOUNT_LOCKED == command.CmdType)
     {
         std::string sql, op;
-        if(ParseUpdateAccountLockedCommand(cmd, sql, op, RiskEvent))
+        if(ParseUpdateAccountLockedCommand(cmd, command.CmdType, sql, op, RiskEvent))
         {
             std::string errorString;
             bool ok = m_RiskDBManager->UpdateAccountLockedTable(sql, op, &RiskEngine::sqlite3_callback_AccountLocked, errorString);
             fmt::format_to_n(RiskEvent.Event, sizeof(RiskEvent.Event), "{}", errorString);
-            QueryAccountLocked();
+            // QueryAccountLocked();
         }
         {
             Message::PackMessage message;
@@ -1930,7 +1930,6 @@ void RiskEngine::HandleRiskCommand(const Message::TCommand& command)
         }
     }
 }
-
 
 bool RiskEngine::ParseUpdateRiskLimitCommand(const std::string& cmd, int cmdType, std::string& sql, std::string& op, Message::TRiskReport& event)
 {
@@ -2006,33 +2005,54 @@ bool RiskEngine::ParseUpdateRiskLimitCommand(const std::string& cmd, int cmdType
         {
             if(Message::ECommandType::EUPDATE_RISK_LIMIT == cmdType)
             {
+                Message::TRiskReport RiskLimit;
+                memset(&RiskLimit, 0, sizeof(RiskLimit));
+                memcpy(&RiskLimit, &event, sizeof(RiskLimit));
+                RiskLimit.ReportType = Message::ERiskReportType::ERISK_LIMIT;
+                m_RiskLimitMap[key] = RiskLimit;
                 // Insert
                 sql = fmt::format("INSERT INTO RiskLimitTable(RiskID,Account,Ticker,BusinessType,FlowLimit,CancelCount,CancelLimit,OrderCount,OrderLimit,OrderCancelLimit,Trader,UpdateTime) VALUES('{}','{}','{}',{},{},{},{},{},{},{},'{}','{}');",
                                 RiskID, Account, Ticker, BusinessType, FlowLimit, CancelCount, CancelLimit, OrderCount, OrderLimit, OrderCancelLimit, Trader, event.UpdateTime);
                 op = "INSERT";
-                FMTLOG(fmtlog::INF, "RiskEngine::ParseUpdateRiskLimitCommand {} {}", op, sql);
+                FMTLOG(fmtlog::INF, "RiskEngine::ParseUpdateRiskLimitCommand {}", sql);
+
+                Message::PackMessage message;
+                memset(&message, 0, sizeof(message));
+                message.MessageType = Message::EMessageType::ERiskReport;
+                memcpy(&message.RiskReport, &RiskLimit, sizeof(message.RiskReport));
+                while(!m_RiskResponseQueue.Push(message));
             }
             else
             {
-                FMTLOG(fmtlog::ERR, "RiskEngine::ParseUpdateRiskLimitCommand {} and {} not found, invalid CmdType , {}", Account, Ticker, cmdType);
+                ret = false;
+                fmt::format_to_n(event.Event, sizeof(event.Event), "Account={} and Ticker={} not found, invalid CmdType={}", Account, Ticker, cmdType);
+                FMTLOG(fmtlog::ERR, "RiskEngine::ParseUpdateRiskLimitCommand Account={} and Ticker={} not found, invalid CmdType={}", Account, Ticker, cmdType);
             }
         }
         else
         {
             if(Message::ECommandType::EUPDATE_RISK_LIMIT == cmdType)
             {
+                memcpy(&it->second, &event, sizeof(it->second));
+                it->second.ReportType = Message::ERiskReportType::ERISK_LIMIT;
                 // Update
                 sql = fmt::format("UPDATE RiskLimitTable SET RiskID='{}',BusinessType={},FlowLimit={},CancelCount={},CancelLimit={},OrderCount={},OrderLimit={},OrderCancelLimit={},Trader='{}',UpdateTime='{}' WHERE Account='{}' AND Ticker='{}';",
                                 RiskID, BusinessType, FlowLimit, CancelCount, CancelLimit, OrderCount, OrderLimit, OrderCancelLimit, Trader, event.UpdateTime, Account, Ticker);
                 op = "UPDATE";
+                Message::PackMessage message;
+                memset(&message, 0, sizeof(message));
+                message.MessageType = Message::EMessageType::ERiskReport;
+                memcpy(&message.RiskReport, &it->second, sizeof(message.RiskReport));
+                while(!m_RiskResponseQueue.Push(message));
             }
             else if(Message::ECommandType::EDELETE_RISK_LIMIT == cmdType)
             {
+                m_RiskLimitMap.erase(key);
                 // Delete
                 sql = fmt::format("DELETE FROM RiskLimitTable WHERE Account='{}' AND Ticker='{}';", Account, Ticker);
                 op = "DELETE";
             }
-            FMTLOG(fmtlog::INF, "RiskEngine::ParseUpdateRiskLimitCommand {} {}", op, sql);
+            FMTLOG(fmtlog::INF, "RiskEngine::ParseUpdateRiskLimitCommand {}", sql);
         }
         FMTLOG(fmtlog::INF, "RiskEngine::ParseUpdateRiskLimitCommand, RiskID:{} Account:{} Ticker:{} FlowLimit:{} CancelCount:{} CancelLimit:{} OrderCount:{} OrderLimit:{} OrderCancelLimit:{} Trader:{} MapSize:{}",
                 RiskID, Account, Ticker, FlowLimit, CancelCount, CancelLimit, OrderCount, OrderLimit, OrderCancelLimit, Trader, m_RiskLimitMap.size());
@@ -2073,34 +2093,42 @@ bool RiskEngine::ParseUpdatePositionLimitCommand(const std::string& cmd, int cmd
         keyValue.clear();
         Utils::Split(items[3], ":", keyValue);
         int EngineID = atoi(keyValue[1].c_str());
+        event.EngineID = EngineID;
 
         keyValue.clear();
         Utils::Split(items[4], ":", keyValue);
         int BusinessType = atoi(keyValue[1].c_str());
+        event.BusinessType = BusinessType;
 
         keyValue.clear();
         Utils::Split(items[5], ":", keyValue);
         int LongVolume = atoi(keyValue[1].c_str());
+        event.LongVolume = LongVolume;
 
         keyValue.clear();
         Utils::Split(items[6], ":", keyValue);
         int ShortVolume = atoi(keyValue[1].c_str());
+        event.ShortVolume = ShortVolume;
 
         keyValue.clear();
         Utils::Split(items[7], ":", keyValue);
         int LongLimit = atoi(keyValue[1].c_str());
+        event.LongLimit = LongLimit;
 
         keyValue.clear();
         Utils::Split(items[8], ":", keyValue);
         int ShortLimit = atoi(keyValue[1].c_str());
+        event.ShortLimit = ShortLimit;
 
         keyValue.clear();
         Utils::Split(items[9], ":", keyValue);
         int ExposureLowerLimit = atoi(keyValue[1].c_str());
+        event.ExposureLowerLimit = ExposureLowerLimit;
 
         keyValue.clear();
         Utils::Split(items[10], ":", keyValue);
         int ExposureUpperLimit = atoi(keyValue[1].c_str());
+        event.ExposureUpperLimit = ExposureUpperLimit;
 
         keyValue.clear();
         Utils::Split(items[11], ":", keyValue);
@@ -2119,33 +2147,55 @@ bool RiskEngine::ParseUpdatePositionLimitCommand(const std::string& cmd, int cmd
         {
             if(Message::ECommandType::EUPDATE_RISK_POSITION_LIMIT == cmdType)
             {
+                Message::TRiskReport PositionLimit;
+                memset(&PositionLimit, 0, sizeof(PositionLimit));
+                memcpy(&PositionLimit, &event, sizeof(PositionLimit));
+                PositionLimit.ReportType = Message::ERiskReportType::ERISK_POSITION_LIMIT;
+                m_StrategyPositionLimitMap[key] = PositionLimit;
                 // Insert
                 sql = fmt::format("INSERT INTO PositionLimitTable(RiskID,Account,Ticker,EngineID,BusinessType,LongVolume,ShortVolume,LongLimit,ShortLimit,ExposureLowerLimit,ExposureUpperLimit,Trader,UpdateTime) VALUES('{}','{}','{}',{},{},{},{},{},{},{},{},'{}','{}');",
                                 RiskID, Account, Ticker, EngineID, BusinessType, LongVolume, ShortVolume, LongLimit, ShortLimit, ExposureLowerLimit, ExposureUpperLimit, Trader, event.UpdateTime);
                 op = "INSERT";
-                FMTLOG(fmtlog::INF, "RiskEngine::ParseUpdatePositionLimitCommand {} {}", op, sql);
+                FMTLOG(fmtlog::INF, "RiskEngine::ParseUpdatePositionLimitCommand {}", sql);
+
+                Message::PackMessage message;
+                memset(&message, 0, sizeof(message));
+                message.MessageType = Message::EMessageType::ERiskReport;
+                memcpy(&message.RiskReport, &PositionLimit, sizeof(message.RiskReport));
+                while(!m_RiskResponseQueue.Push(message));
             }
             else
             {
-                FMTLOG(fmtlog::ERR, "RiskEngine::ParseUpdatePositionLimitCommand {} and {} not found, invalid CmdType , {}", Account, Ticker, cmdType);
+                ret = false;
+                fmt::format_to_n(event.Event, sizeof(event.Event), "Account={} and Ticker={} and EngineID={} not found, invalid CmdType={}", Account, Ticker, EngineID, cmdType);
+                FMTLOG(fmtlog::ERR, "RiskEngine::ParseUpdatePositionLimitCommand Account={} and Ticker={} and EngineID={} not found, invalid CmdType={}", Account, Ticker, EngineID, cmdType);
             }
         }
         else
         {
             if(Message::ECommandType::EUPDATE_RISK_POSITION_LIMIT == cmdType)
             {
+                memcpy(&it->second, &event, sizeof(it->second));
+                it->second.ReportType = Message::ERiskReportType::ERISK_POSITION_LIMIT;
                 // Update
                 sql = fmt::format("UPDATE PositionLimitTable SET RiskID='{}',BusinessType={},LongVolume={},ShortVolume={},LongLimit={},ShortLimit={},ExposureLowerLimit={},ExposureUpperLimit={},Trader='{}',UpdateTime='{}' WHERE Account='{}' AND Ticker='{}' AND EngineID={};",
                                 RiskID, BusinessType, LongVolume, ShortVolume, LongLimit, ShortLimit, ExposureLowerLimit, ExposureUpperLimit, Trader, event.UpdateTime, Account, Ticker, EngineID);
                 op = "UPDATE";
+
+                Message::PackMessage message;
+                memset(&message, 0, sizeof(message));
+                message.MessageType = Message::EMessageType::ERiskReport;
+                memcpy(&message.RiskReport, &it->second, sizeof(message.RiskReport));
+                while(!m_RiskResponseQueue.Push(message));
             }
             else if(Message::ECommandType::EDELETE_RISK_POSITION_LIMIT == cmdType)
             {
+                m_StrategyPositionLimitMap.erase(key);
                 // Delete
                 sql = fmt::format("DELETE FROM PositionLimitTable WHERE Account='{}' AND Ticker='{}' AND EngineID={};", Account, Ticker, EngineID);
                 op = "DELETE";
             }
-            FMTLOG(fmtlog::INF, "RiskEngine::ParseUpdatePositionLimitCommand {} {}", op, sql);
+            FMTLOG(fmtlog::INF, "RiskEngine::ParseUpdatePositionLimitCommand {}", sql);
         }
         FMTLOG(fmtlog::INF, "RiskEngine::ParseUpdatePositionLimitCommand, RiskID:{} Account:{} Ticker:{} EngineID:{} BusinessType:{} LongVolume:{} ShortVolume:{} LongLimit:{} ShortLimit:{} ExposureLowerLimit:{} ExposureUpperLimit:{} Trader:{} MapSize:{}",
                 RiskID, Account, Ticker, EngineID, BusinessType, LongVolume, ShortVolume, LongLimit, ShortLimit, ExposureLowerLimit, ExposureUpperLimit, Trader, m_StrategyPositionLimitMap.size());
@@ -2160,7 +2210,7 @@ bool RiskEngine::ParseUpdatePositionLimitCommand(const std::string& cmd, int cmd
     return ret;
 }
 
-bool RiskEngine::ParseUpdateAccountLockedCommand(const std::string& cmd, std::string& sql, std::string& op, Message::TRiskReport& event)
+bool RiskEngine::ParseUpdateAccountLockedCommand(const std::string& cmd, int cmdType, std::string& sql, std::string& op, Message::TRiskReport& event)
 {
     bool ret = true;
     sql.clear();
@@ -2186,10 +2236,12 @@ bool RiskEngine::ParseUpdateAccountLockedCommand(const std::string& cmd, std::st
         keyValue.clear();
         Utils::Split(items[3], ":", keyValue);
         int BusinessType = atoi(keyValue[1].c_str());
+        event.BusinessType = BusinessType;
 
         keyValue.clear();
         Utils::Split(items[4], ":", keyValue);
         int LockSide = atoi(keyValue[1].c_str());
+        event.LockSide = LockSide;
 
         keyValue.clear();
         Utils::Split(items[5], ":", keyValue);
@@ -2205,17 +2257,57 @@ bool RiskEngine::ParseUpdateAccountLockedCommand(const std::string& cmd, std::st
         auto it = m_AccountLockedMap.find(key);
         if(m_AccountLockedMap.end() == it)
         {
-            // Insert
-            sql = fmt::format("INSERT INTO AccountLockedTable(RiskID,Account,Ticker,BusinessType,LockSide,Trader,UpdateTime) VALUES('{}','{}','{}',{},{},'{}','{}');",
-                            RiskID, Account, Ticker, BusinessType, LockSide, Trader, event.UpdateTime);
-            op = "INSERT";
+            if(Message::ECommandType::EUPDATE_RISK_ACCOUNT_LOCKED == cmdType)
+            {
+                Message::TRiskReport LockAccount;
+                memset(&LockAccount, 0, sizeof(LockAccount));
+                memcpy(&LockAccount, &event, sizeof(LockAccount));
+                LockAccount.ReportType = Message::ERiskReportType::ERISK_ACCOUNT_LOCKED;
+                m_AccountLockedMap[key] = LockAccount;
+                // Insert
+                sql = fmt::format("INSERT INTO AccountLockedTable(RiskID,Account,Ticker,BusinessType,LockSide,Trader,UpdateTime) VALUES('{}','{}','{}',{},{},'{}','{}');",
+                                RiskID, Account, Ticker, BusinessType, LockSide, Trader, event.UpdateTime);
+                op = "INSERT";
+                FMTLOG(fmtlog::INF, "RiskEngine::ParseUpdateAccountLockedCommand {}", sql);
+
+                Message::PackMessage message;
+                memset(&message, 0, sizeof(message));
+                message.MessageType = Message::EMessageType::ERiskReport;
+                memcpy(&message.RiskReport, &LockAccount, sizeof(message.RiskReport));
+                while(!m_RiskResponseQueue.Push(message));
+            }
+            else
+            {
+                ret = false;
+                fmt::format_to_n(event.Event, sizeof(event.Event), "Account={} and Ticker={} not found, invalid CmdType={}", Account, Ticker, cmdType);
+                FMTLOG(fmtlog::ERR, "RiskEngine::ParseUpdateAccountLockedCommand Account={} and Ticker={} not found, invalid CmdType={}", Account, Ticker, cmdType);
+            }
         }
         else
         {
-            // Update
-            sql = fmt::format("UPDATE AccountLockedTable SET RiskID='{}',BusinessType={},LockSide={},Trader='{}',UpdateTime='{}' WHERE Account='{}' AND Ticker='{}';",
-                            RiskID, BusinessType, LockSide, Trader, event.UpdateTime, Account, Ticker);
-            op = "UPDATE";
+            if(Message::ECommandType::EUPDATE_RISK_ACCOUNT_LOCKED == cmdType)
+            {
+                memcpy(&it->second, &event, sizeof(it->second));
+                it->second.ReportType = Message::ERiskReportType::ERISK_ACCOUNT_LOCKED;
+                // Update
+                sql = fmt::format("UPDATE AccountLockedTable SET RiskID='{}',BusinessType={},LockSide={},Trader='{}',UpdateTime='{}' WHERE Account='{}' AND Ticker='{}';",
+                                RiskID, BusinessType, LockSide, Trader, event.UpdateTime, Account, Ticker);
+                op = "UPDATE";
+
+                Message::PackMessage message;
+                memset(&message, 0, sizeof(message));
+                message.MessageType = Message::EMessageType::ERiskReport;
+                memcpy(&message.RiskReport, &it->second, sizeof(message.RiskReport));
+                while(!m_RiskResponseQueue.Push(message));
+            }
+            else if(Message::ECommandType::EDELETE_RISK_ACCOUNT_LOCKED == cmdType)
+            {
+                m_AccountLockedMap.erase(key);
+                // Delete
+                sql = fmt::format("DELETE FROM AccountLockedTable WHERE Account='{}' AND Ticker='{}';", Account, Ticker);
+                op = "DELETE";
+            }
+            FMTLOG(fmtlog::INF, "RiskEngine::ParseUpdateAccountLockedCommand {}", sql);
         }
         FMTLOG(fmtlog::INF, "RiskEngine::ParseUpdateAccountLockedCommand, RiskID:{} Account:{} Ticker:{} BusinessType:{} LockSide:{} Trader:{} MapSize:{}",
                 RiskID, Account, Ticker, BusinessType, LockSide, Trader, m_AccountLockedMap.size());

@@ -263,7 +263,6 @@ void RiskEngine::HandleOrderStatus(const Message::PackMessage& msg)
             OrderStatus.OrderStatus == Message::EOrderStatusType::EPARTTRADED_CANCELLED) 
         {
             UpdateStrategyPosition(OrderStatus);
-            // UpdateAccountPosition(OrderStatus);
         }
     }
     // 更新报单、撤单计数
@@ -1640,6 +1639,7 @@ bool RiskEngine::QueryRiskLimit()
             memcpy(&msg.RiskReport, &riskLimit.second, sizeof(msg.RiskReport));
             m_RiskResponseQueue.Push(msg);
         }
+        FMTLOG(fmtlog::INF, "RiskEngine::QueryRiskLimit {}", m_RiskLimitMap.size());
     }
     return ret;
 }
@@ -1875,10 +1875,10 @@ void RiskEngine::HandleRiskCommand(const Message::TCommand& command)
     memset(&RiskEvent, 0, sizeof(RiskEvent));
     RiskEvent.ReportType = Message::ERiskReportType::ERISK_EVENTLOG;
 
-    if(Message::ECommandType::EUPDATE_RISK_LIMIT == command.CmdType)
+    if(Message::ECommandType::EUPDATE_RISK_LIMIT == command.CmdType || Message::ECommandType::EDELETE_RISK_LIMIT == command.CmdType)
     {
         std::string sql, op;
-        if(ParseUpdateRiskLimitCommand(cmd, sql, op, RiskEvent))
+        if(ParseUpdateRiskLimitCommand(cmd, command.CmdType, sql, op, RiskEvent))
         {
             std::string errorString;
             bool ok = m_RiskDBManager->UpdateRiskLimitTable(sql, op, &RiskEngine::sqlite3_callback_RiskLimit, errorString);
@@ -1893,10 +1893,10 @@ void RiskEngine::HandleRiskCommand(const Message::TCommand& command)
             while(!m_RiskResponseQueue.Push(message));
         }
     }
-    else if(Message::ECommandType::EUPDATE_RISK_POSITION_LIMIT == command.CmdType)
+    else if(Message::ECommandType::EUPDATE_RISK_POSITION_LIMIT == command.CmdType || Message::ECommandType::EDELETE_RISK_POSITION_LIMIT == command.CmdType)
     {
         std::string sql, op;
-        if(ParseUpdatePositionLimitCommand(cmd, sql, op, RiskEvent))
+        if(ParseUpdatePositionLimitCommand(cmd, command.CmdType, sql, op, RiskEvent))
         {
             std::string errorString;
             bool ok = m_RiskDBManager->UpdatePositionLimitTable(sql, op, &RiskEngine::sqlite3_callback_PositionLimit, errorString);
@@ -1932,7 +1932,7 @@ void RiskEngine::HandleRiskCommand(const Message::TCommand& command)
 }
 
 
-bool RiskEngine::ParseUpdateRiskLimitCommand(const std::string& cmd, std::string& sql, std::string& op, Message::TRiskReport& event)
+bool RiskEngine::ParseUpdateRiskLimitCommand(const std::string& cmd, int cmdType, std::string& sql, std::string& op, Message::TRiskReport& event)
 {
     bool ret = true;
     sql.clear();
@@ -2004,17 +2004,35 @@ bool RiskEngine::ParseUpdateRiskLimitCommand(const std::string& cmd, std::string
         auto it = m_RiskLimitMap.find(key);
         if(m_RiskLimitMap.end() == it)
         {
-            // Insert
-            sql = fmt::format("INSERT INTO RiskLimitTable(RiskID,Account,Ticker,BusinessType,FlowLimit,CancelCount,CancelLimit,OrderCount,OrderLimit,OrderCancelLimit,Trader,UpdateTime) VALUES('{}','{}','{}',{},{},{},{},{},{},{},'{}','{}');",
-                            RiskID, Account, Ticker, BusinessType, FlowLimit, CancelCount, CancelLimit, OrderCount, OrderLimit, OrderCancelLimit, Trader, event.UpdateTime);
-            op = "INSERT";
+            if(Message::ECommandType::EUPDATE_RISK_LIMIT == cmdType)
+            {
+                // Insert
+                sql = fmt::format("INSERT INTO RiskLimitTable(RiskID,Account,Ticker,BusinessType,FlowLimit,CancelCount,CancelLimit,OrderCount,OrderLimit,OrderCancelLimit,Trader,UpdateTime) VALUES('{}','{}','{}',{},{},{},{},{},{},{},'{}','{}');",
+                                RiskID, Account, Ticker, BusinessType, FlowLimit, CancelCount, CancelLimit, OrderCount, OrderLimit, OrderCancelLimit, Trader, event.UpdateTime);
+                op = "INSERT";
+                FMTLOG(fmtlog::INF, "RiskEngine::ParseUpdateRiskLimitCommand {} {}", op, sql);
+            }
+            else
+            {
+                FMTLOG(fmtlog::ERR, "RiskEngine::ParseUpdateRiskLimitCommand {} and {} not found, invalid CmdType , {}", Account, Ticker, cmdType);
+            }
         }
         else
         {
-            // Update
-            sql = fmt::format("UPDATE RiskLimitTable SET RiskID='{}',BusinessType={},FlowLimit={},CancelCount={},CancelLimit={},OrderCount={},OrderLimit={},OrderCancelLimit={},Trader='{}',UpdateTime='{}' WHERE Account='{}' AND Ticker='{}';",
-                            RiskID, BusinessType, FlowLimit, CancelCount, CancelLimit, OrderCount, OrderLimit, OrderCancelLimit, Trader, event.UpdateTime, Account, Ticker);
-            op = "UPDATE";
+            if(Message::ECommandType::EUPDATE_RISK_LIMIT == cmdType)
+            {
+                // Update
+                sql = fmt::format("UPDATE RiskLimitTable SET RiskID='{}',BusinessType={},FlowLimit={},CancelCount={},CancelLimit={},OrderCount={},OrderLimit={},OrderCancelLimit={},Trader='{}',UpdateTime='{}' WHERE Account='{}' AND Ticker='{}';",
+                                RiskID, BusinessType, FlowLimit, CancelCount, CancelLimit, OrderCount, OrderLimit, OrderCancelLimit, Trader, event.UpdateTime, Account, Ticker);
+                op = "UPDATE";
+            }
+            else if(Message::ECommandType::EDELETE_RISK_LIMIT == cmdType)
+            {
+                // Delete
+                sql = fmt::format("DELETE FROM RiskLimitTable WHERE Account='{}' AND Ticker='{}';", Account, Ticker);
+                op = "DELETE";
+            }
+            FMTLOG(fmtlog::INF, "RiskEngine::ParseUpdateRiskLimitCommand {} {}", op, sql);
         }
         FMTLOG(fmtlog::INF, "RiskEngine::ParseUpdateRiskLimitCommand, RiskID:{} Account:{} Ticker:{} FlowLimit:{} CancelCount:{} CancelLimit:{} OrderCount:{} OrderLimit:{} OrderCancelLimit:{} Trader:{} MapSize:{}",
                 RiskID, Account, Ticker, FlowLimit, CancelCount, CancelLimit, OrderCount, OrderLimit, OrderCancelLimit, Trader, m_RiskLimitMap.size());
@@ -2029,7 +2047,7 @@ bool RiskEngine::ParseUpdateRiskLimitCommand(const std::string& cmd, std::string
     return ret;
 }
 
-bool RiskEngine::ParseUpdatePositionLimitCommand(const std::string& cmd, std::string& sql, std::string& op, Message::TRiskReport& event)
+bool RiskEngine::ParseUpdatePositionLimitCommand(const std::string& cmd, int cmdType, std::string& sql, std::string& op, Message::TRiskReport& event)
 {
     bool ret = true;
     sql.clear();
@@ -2099,17 +2117,35 @@ bool RiskEngine::ParseUpdatePositionLimitCommand(const std::string& cmd, std::st
         auto it = m_StrategyPositionLimitMap.find(key);
         if(m_StrategyPositionLimitMap.end() == it)
         {
-            // Insert
-            sql = fmt::format("INSERT INTO PositionLimitTable(RiskID,Account,Ticker,EngineID,BusinessType,LongVolume,ShortVolume,LongLimit,ShortLimit,ExposureLowerLimit,ExposureUpperLimit,Trader,UpdateTime) VALUES('{}','{}','{}',{},{},{},{},{},{},{},{},'{}','{}');",
-                            RiskID, Account, Ticker, EngineID, BusinessType, LongVolume, ShortVolume, LongLimit, ShortLimit, ExposureLowerLimit, ExposureUpperLimit, Trader, event.UpdateTime);
-            op = "INSERT";
+            if(Message::ECommandType::EUPDATE_RISK_POSITION_LIMIT == cmdType)
+            {
+                // Insert
+                sql = fmt::format("INSERT INTO PositionLimitTable(RiskID,Account,Ticker,EngineID,BusinessType,LongVolume,ShortVolume,LongLimit,ShortLimit,ExposureLowerLimit,ExposureUpperLimit,Trader,UpdateTime) VALUES('{}','{}','{}',{},{},{},{},{},{},{},{},'{}','{}');",
+                                RiskID, Account, Ticker, EngineID, BusinessType, LongVolume, ShortVolume, LongLimit, ShortLimit, ExposureLowerLimit, ExposureUpperLimit, Trader, event.UpdateTime);
+                op = "INSERT";
+                FMTLOG(fmtlog::INF, "RiskEngine::ParseUpdatePositionLimitCommand {} {}", op, sql);
+            }
+            else
+            {
+                FMTLOG(fmtlog::ERR, "RiskEngine::ParseUpdatePositionLimitCommand {} and {} not found, invalid CmdType , {}", Account, Ticker, cmdType);
+            }
         }
         else
         {
-            // Update
-            sql = fmt::format("UPDATE PositionLimitTable SET RiskID='{}',BusinessType={},LongVolume={},ShortVolume={},LongLimit={},ShortLimit={},ExposureLowerLimit={},ExposureUpperLimit={},Trader='{}',UpdateTime='{}' WHERE Account='{}' AND Ticker='{}' AND EngineID={};",
-                            RiskID, BusinessType, LongVolume, ShortVolume, LongLimit, ShortLimit, ExposureLowerLimit, ExposureUpperLimit, Trader, event.UpdateTime, Account, Ticker, EngineID);
-            op = "UPDATE";
+            if(Message::ECommandType::EUPDATE_RISK_POSITION_LIMIT == cmdType)
+            {
+                // Update
+                sql = fmt::format("UPDATE PositionLimitTable SET RiskID='{}',BusinessType={},LongVolume={},ShortVolume={},LongLimit={},ShortLimit={},ExposureLowerLimit={},ExposureUpperLimit={},Trader='{}',UpdateTime='{}' WHERE Account='{}' AND Ticker='{}' AND EngineID={};",
+                                RiskID, BusinessType, LongVolume, ShortVolume, LongLimit, ShortLimit, ExposureLowerLimit, ExposureUpperLimit, Trader, event.UpdateTime, Account, Ticker, EngineID);
+                op = "UPDATE";
+            }
+            else if(Message::ECommandType::EDELETE_RISK_POSITION_LIMIT == cmdType)
+            {
+                // Delete
+                sql = fmt::format("DELETE FROM PositionLimitTable WHERE Account='{}' AND Ticker='{}' AND EngineID={};", Account, Ticker, EngineID);
+                op = "DELETE";
+            }
+            FMTLOG(fmtlog::INF, "RiskEngine::ParseUpdatePositionLimitCommand {} {}", op, sql);
         }
         FMTLOG(fmtlog::INF, "RiskEngine::ParseUpdatePositionLimitCommand, RiskID:{} Account:{} Ticker:{} EngineID:{} BusinessType:{} LongVolume:{} ShortVolume:{} LongLimit:{} ShortLimit:{} ExposureLowerLimit:{} ExposureUpperLimit:{} Trader:{} MapSize:{}",
                 RiskID, Account, Ticker, EngineID, BusinessType, LongVolume, ShortVolume, LongLimit, ShortLimit, ExposureLowerLimit, ExposureUpperLimit, Trader, m_StrategyPositionLimitMap.size());
@@ -2215,13 +2251,13 @@ void RiskEngine::UpdateAppStatus(const std::string& cmd, Message::TAppStatus& Ap
             break;
         }
     }
-    fmt::format_to_n(AppStatus.Account, sizeof(AppStatus.Account), "{}", Account);
+    strncpy(AppStatus.Account, Account.c_str(), sizeof(AppStatus.Account));
     std::vector<std::string> Vec;
     Utils::Split(ItemVec.at(0), "/", Vec);
     std::string AppName = Vec.at(Vec.size() - 1);
-    fmt::format_to_n(AppStatus.AppName, sizeof(AppStatus.AppName), "{}", AppName);
+    strncpy(AppStatus.AppName, AppName.c_str(), sizeof(AppStatus.AppName));
     AppStatus.PID = getpid();
-    fmt::format_to_n(AppStatus.Status, sizeof(AppStatus.Status), "{}", "Start");
+    strncpy(AppStatus.Status, "Start", sizeof(AppStatus.Status));
 
     char command[256] = {0};
     std::string AppLogPath;
@@ -2234,13 +2270,14 @@ void RiskEngine::UpdateAppStatus(const std::string& cmd, Message::TAppStatus& Ap
     {
         AppLogPath = p;
     }
-    fmt::format_to_n(AppStatus.StartScript, sizeof(AppStatus.StartScript), "nohup {} > {}/{}_{}_run.log 2>&1 &", 
-                    cmd, AppLogPath, AppName, AppStatus.Account);
+    sprintf(AppStatus.StartScript, "nohup %s > %s/%s_%s_run.log 2>&1 &", 
+                    cmd.c_str(), AppLogPath.c_str(), AppName.c_str(), AppStatus.Account);
+    strncpy(AppStatus.Status, "Start", sizeof(AppStatus.Status));
     std::string CommitID = std::string(APP_COMMITID) + ":" + SHMSERVER_COMMITID;
-    fmt::format_to_n(AppStatus.CommitID, sizeof(AppStatus.CommitID), "{}", CommitID);
-    fmt::format_to_n(AppStatus.UtilsCommitID, sizeof(AppStatus.UtilsCommitID), "{}", UTILS_COMMITID);
-    fmt::format_to_n(AppStatus.APIVersion, sizeof(AppStatus.APIVersion), "{}", API_VERSION);
-    fmt::format_to_n(AppStatus.StartTime, sizeof(AppStatus.StartTime), "{}", Utils::getCurrentTimeUs());
-    fmt::format_to_n(AppStatus.LastStartTime, sizeof(AppStatus.LastStartTime), "{}", Utils::getCurrentTimeUs());
-    fmt::format_to_n(AppStatus.UpdateTime, sizeof(AppStatus.UpdateTime), "{}", Utils::getCurrentTimeUs());
+    strncpy(AppStatus.CommitID, CommitID.c_str(), sizeof(AppStatus.CommitID));
+    strncpy(AppStatus.UtilsCommitID, UTILS_COMMITID, sizeof(AppStatus.UtilsCommitID));
+    strncpy(AppStatus.APIVersion, API_VERSION, sizeof(AppStatus.APIVersion));
+    strncpy(AppStatus.StartTime, Utils::getCurrentTimeUs(), sizeof(AppStatus.StartTime));
+    strncpy(AppStatus.LastStartTime, Utils::getCurrentTimeUs(), sizeof(AppStatus.LastStartTime));
+    strncpy(AppStatus.UpdateTime, Utils::getCurrentTimeUs(), sizeof(AppStatus.UpdateTime));
 }

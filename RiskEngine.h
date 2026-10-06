@@ -146,9 +146,9 @@ protected:
     static int sqlite3_callback_AccountLocked(void *data, int argc, char **argv, char **azColName);
     void HandleRiskCommand(const Message::TCommand& command);
     // 风控参数设置命令解析
-    bool ParseUpdateRiskLimitCommand(const std::string& cmd, std::string& sql, std::string& op, Message::TRiskReport& event);
+    bool ParseUpdateRiskLimitCommand(const std::string& cmd, int cmdType, std::string& sql, std::string& op, Message::TRiskReport& event);
     // 账户锁定命令解析
-    bool ParseUpdatePositionLimitCommand(const std::string& cmd, std::string& sql, std::string& op, Message::TRiskReport& event);
+    bool ParseUpdatePositionLimitCommand(const std::string& cmd, int cmdType, std::string& sql, std::string& op, Message::TRiskReport& event);
     // 账户锁定命令解析
     bool ParseUpdateAccountLockedCommand(const std::string& cmd, std::string& sql, std::string& op, Message::TRiskReport& event);
     void InitAppStatus();

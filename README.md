@@ -8,3 +8,4 @@
 
 - 风控系统提供程序化交易报备合规风控要求，包括流速限制，账户/合约锁定和恢复交易，交易指令检查(合约有效性、价格、数量)，防自成交，Ticker撤单限制、订单撤单限制、订单申报次数限制，策略层面合约持仓限制，账户层面合约持仓限制和净持仓限制；双击XMonitor客户端的RiskJudge插件页的对应表格行可修改风控限制参数。如下：
 <img src="images/RiskJudge.png" width="100%">
+- 注：**增加、修改实时生效。针对RiskLimitTable、PositionLimitTable表的删除，在XRiskJudge重启后生效，XMonitor客户端则在XServer删除相应二进制快照Bin文件后重启生效，生产环境通常为次日生效**。

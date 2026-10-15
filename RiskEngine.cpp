@@ -367,15 +367,18 @@ bool RiskEngine::Check(Message::PackMessage& msg)
         {
             ret = false;
         }
-        // Strategy Position Limit  Check
-        if (ret && !StrategyPositionLimitCheck(msg)) 
+        if(m_XRiskJudgeConfig.StrategyPositionCheck)
         {
-            ret = false;
-        }
-        // Account Position Limit  Check
-        if (ret && !AccountPositionLimitCheck(msg)) 
-        {
-            ret = false;
+            // Strategy Position Limit  Check
+            if (ret && !StrategyPositionLimitCheck(msg)) 
+            {
+                ret = false;
+            }
+            // Account Position Limit  Check
+            if (ret && !AccountPositionLimitCheck(msg)) 
+            {
+                ret = false;
+            }
         }
         if(ret)
         {
@@ -1329,12 +1332,9 @@ bool RiskEngine::AccountPositionLimitCheck(Message::PackMessage& msg)
 void RiskEngine::UpdateTickerRiskLimit(const Message::TOrderStatus& OrderStatus)
 {
     bool cancelled = Message::EOrderStatusType::EPARTTRADED_CANCELLED == OrderStatus.OrderStatus ||
-                        Message::EOrderStatusType::ECANCELLED == OrderStatus.OrderStatus ||
-                        Message::EOrderStatusType::EEXCHANGE_ERROR == OrderStatus.OrderStatus ||
-                        Message::EOrderStatusType::EBROKER_ERROR == OrderStatus.OrderStatus;
+                        Message::EOrderStatusType::ECANCELLED == OrderStatus.OrderStatus;
     if(cancelled)
     {
-        int CancelCount = 0;
         RiskLimitKey key;
         key.Account = OrderStatus.Account;
         key.Ticker = OrderStatus.Ticker;
@@ -1343,7 +1343,6 @@ void RiskEngine::UpdateTickerRiskLimit(const Message::TOrderStatus& OrderStatus)
         {
             Message::TRiskReport& report = it->second;
             report.CancelCount += 1;
-            CancelCount = report.CancelCount;
             fmt::format_to_n(report.UpdateTime, sizeof(report.UpdateTime), "{}", Utils::getCurrentTimeUs());
             // Update SQLite RiskLimitTable
             std::string SQL = fmt::format("UPDATE RiskLimitTable SET RiskID='{}', CancelCount={}, Trader='{}', UpdateTime='{}' WHERE Account='{}' AND Ticker='{}';",
@@ -1361,62 +1360,20 @@ void RiskEngine::UpdateTickerRiskLimit(const Message::TOrderStatus& OrderStatus)
             }
             FMTLOG(fmtlog::INF, "RiskEngine::UpdateTickerRiskLimit, Update Cancelled Order Counter, Product:{} Account:{} Ticker:{} "
                                 "OrderRef:{} OrderStatus:{} OrderType:{} CancelCount:{}",
-                    OrderStatus.Product, OrderStatus.Account, OrderStatus.Ticker, OrderStatus.OrderRef, OrderStatus.OrderStatus, OrderStatus.OrderType, CancelCount);
-        }
-    }
-}
-
-void RiskEngine::UpdateAccountRiskLimit(const Message::TOrderStatus& OrderStatus)
-{
-    bool cancelled = Message::EOrderStatusType::EPARTTRADED_CANCELLED == OrderStatus.OrderStatus ||
-                        Message::EOrderStatusType::ECANCELLED == OrderStatus.OrderStatus ||
-                        Message::EOrderStatusType::EEXCHANGE_ERROR == OrderStatus.OrderStatus ||
-                        Message::EOrderStatusType::EBROKER_ERROR == OrderStatus.OrderStatus;
-    if(cancelled)
-    {
-        int CancelCount = 0;
-        RiskLimitKey key;
-        key.Account = OrderStatus.Account;
-        key.Ticker = "";
-        auto it = m_RiskLimitMap.find(key);
-        if(m_RiskLimitMap.end() != it)
-        {
-            Message::TRiskReport& report = it->second;
-            report.CancelCount += 1;
-            CancelCount = report.CancelCount;
-            fmt::format_to_n(report.UpdateTime, sizeof(report.UpdateTime), "{}", Utils::getCurrentTimeUs());
-            // Update SQLite RiskLimitTable
-            std::string SQL = fmt::format("UPDATE RiskLimitTable SET RiskID='{}', CancelCount={}, Trader='{}', UpdateTime='{}' WHERE Account='{}' AND Ticker='{}';",
-                                        report.RiskID, report.CancelCount, report.Trader, report.UpdateTime, report.Account, report.Ticker);
-            std::string errorString;
-            bool ok = m_RiskDBManager->UpdateRiskLimitTable(SQL, "UPDATE", &RiskEngine::sqlite3_callback_RiskLimit, errorString);
-            fmt::format_to_n(report.Event, sizeof(report.Event), "{}", errorString);
-            // Update Risk to Monitor
-            {
-                Message::PackMessage message;
-                memset(&message, 0, sizeof(message));
-                message.MessageType = Message::EMessageType::ERiskReport;
-                memcpy(&message.RiskReport, &report, sizeof(message.RiskReport));
-                while(!m_RiskResponseQueue.Push(message));
-            }
-            FMTLOG(fmtlog::INF, "RiskEngine::UpdateAccountRiskLimit, Update Order Cancelled Counter, Product:{} Account:{} Ticker:{} "
-                                "OrderRef:{} OrderStatus:{} OrderType:{} CancelCount:{}",
-                    OrderStatus.Product, OrderStatus.Account, OrderStatus.Ticker, OrderStatus.OrderRef, OrderStatus.OrderStatus, OrderStatus.OrderType, CancelCount);
+                    OrderStatus.Product, OrderStatus.Account, OrderStatus.Ticker, OrderStatus.OrderRef, OrderStatus.OrderStatus, OrderStatus.OrderType, report.CancelCount);
         }
     }
     // 委托申报
     if(Message::EOrderStatusType::EORDER_SENDED == OrderStatus.OrderStatus || Message::EOrderStatusType::ECANCELLING == OrderStatus.OrderStatus)
     {
-        int OrderCount = 0;
         RiskLimitKey key;
         key.Account = OrderStatus.Account;
-        key.Ticker = "";
+        key.Ticker = OrderStatus.Ticker;
         auto it = m_RiskLimitMap.find(key);
         if(m_RiskLimitMap.end() != it)
         {
             Message::TRiskReport& report = it->second; 
             report.OrderCount += 1;
-            OrderCount = report.OrderCount;
             fmt::format_to_n(report.UpdateTime, sizeof(report.UpdateTime), "{}", Utils::getCurrentTimeUs());
             // Update SQLite RiskLimitTable
             std::string SQL = fmt::format("UPDATE RiskLimitTable SET RiskID='{}', OrderCount={}, Trader='{}', UpdateTime='{}' WHERE Account='{}' AND Ticker='{}';",
@@ -1432,10 +1389,78 @@ void RiskEngine::UpdateAccountRiskLimit(const Message::TOrderStatus& OrderStatus
                 memcpy(&message.RiskReport, &report, sizeof(message.RiskReport));
                 while(!m_RiskResponseQueue.Push(message));
             }
-            FMTLOG(fmtlog::INF, "RiskEngine::UpdateAccountRiskLimit, Update Order Counter, Product:{} Account:{} Ticker:{} "
+            FMTLOG(fmtlog::INF, "RiskEngine::UpdateAccountRiskLimit, Update Order Counter, Account:{} Ticker:{} "
                                 "OrderRef:{} OrderStatus:{} OrderType:{} OrderCount:{}",
-                                OrderStatus.Product, OrderStatus.Account, OrderStatus.Ticker, OrderStatus.OrderRef, OrderStatus.OrderStatus, 
-                                OrderStatus.OrderType, OrderCount);
+                                OrderStatus.Account, OrderStatus.Ticker, OrderStatus.OrderRef, OrderStatus.OrderStatus, 
+                                OrderStatus.OrderType, report.OrderCount);
+        }
+    }
+}
+
+void RiskEngine::UpdateAccountRiskLimit(const Message::TOrderStatus& OrderStatus)
+{
+    bool cancelled = Message::EOrderStatusType::EPARTTRADED_CANCELLED == OrderStatus.OrderStatus ||
+                        Message::EOrderStatusType::ECANCELLED == OrderStatus.OrderStatus;
+    if(cancelled)
+    {
+        RiskLimitKey key;
+        key.Account = OrderStatus.Account;
+        key.Ticker = "";
+        auto it = m_RiskLimitMap.find(key);
+        if(m_RiskLimitMap.end() != it)
+        {
+            Message::TRiskReport& report = it->second;
+            report.CancelCount += 1;
+            fmt::format_to_n(report.UpdateTime, sizeof(report.UpdateTime), "{}", Utils::getCurrentTimeUs());
+            // Update SQLite RiskLimitTable
+            std::string SQL = fmt::format("UPDATE RiskLimitTable SET RiskID='{}', CancelCount={}, Trader='{}', UpdateTime='{}' WHERE Account='{}' AND Ticker='{}';",
+                                        report.RiskID, report.CancelCount, report.Trader, report.UpdateTime, report.Account, report.Ticker);
+            std::string errorString;
+            bool ok = m_RiskDBManager->UpdateRiskLimitTable(SQL, "UPDATE", &RiskEngine::sqlite3_callback_RiskLimit, errorString);
+            fmt::format_to_n(report.Event, sizeof(report.Event), "{}", errorString);
+            // Update Risk to Monitor
+            {
+                Message::PackMessage message;
+                memset(&message, 0, sizeof(message));
+                message.MessageType = Message::EMessageType::ERiskReport;
+                memcpy(&message.RiskReport, &report, sizeof(message.RiskReport));
+                while(!m_RiskResponseQueue.Push(message));
+            }
+            FMTLOG(fmtlog::INF, "RiskEngine::UpdateAccountRiskLimit, Update Order Cancelled Counter, Product:{} Account:{} "
+                                "OrderRef:{} OrderStatus:{} OrderType:{} CancelCount:{}",
+                    OrderStatus.Product, OrderStatus.Account, OrderStatus.OrderRef, OrderStatus.OrderStatus, OrderStatus.OrderType, report.CancelCount);
+        }
+    }
+    // 委托申报
+    if(Message::EOrderStatusType::EORDER_SENDED == OrderStatus.OrderStatus || Message::EOrderStatusType::ECANCELLING == OrderStatus.OrderStatus)
+    {
+        RiskLimitKey key;
+        key.Account = OrderStatus.Account;
+        key.Ticker = "";
+        auto it = m_RiskLimitMap.find(key);
+        if(m_RiskLimitMap.end() != it)
+        {
+            Message::TRiskReport& report = it->second; 
+            report.OrderCount += 1;
+            fmt::format_to_n(report.UpdateTime, sizeof(report.UpdateTime), "{}", Utils::getCurrentTimeUs());
+            // Update SQLite RiskLimitTable
+            std::string SQL = fmt::format("UPDATE RiskLimitTable SET RiskID='{}', OrderCount={}, Trader='{}', UpdateTime='{}' WHERE Account='{}' AND Ticker='{}';",
+                                        report.RiskID, report.OrderCount, report.Trader, report.UpdateTime, report.Account, report.Ticker);
+            std::string errorString;
+            bool ok = m_RiskDBManager->UpdateRiskLimitTable(SQL, "UPDATE", &RiskEngine::sqlite3_callback_RiskLimit, errorString);
+            fmt::format_to_n(report.Event, sizeof(report.Event), "{}", errorString);
+            // Update Risk to Monitor
+            {
+                Message::PackMessage message;
+                memset(&message, 0, sizeof(message));
+                message.MessageType = Message::EMessageType::ERiskReport;
+                memcpy(&message.RiskReport, &report, sizeof(message.RiskReport));
+                while(!m_RiskResponseQueue.Push(message));
+            }
+            FMTLOG(fmtlog::INF, "RiskEngine::UpdateAccountRiskLimit, Update Order Counter, Product:{} Account:{} "
+                                "OrderRef:{} OrderStatus:{} OrderType:{} OrderCount:{}",
+                                OrderStatus.Product, OrderStatus.Account, OrderStatus.OrderRef, OrderStatus.OrderStatus, 
+                                OrderStatus.OrderType, report.OrderCount);
         }
     }
 }

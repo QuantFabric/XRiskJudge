@@ -6,3 +6,4 @@ XRiskJudgeConfig:
   XWatcherPort: 8001
   CPUSET: -1, -1
   TickerListPath: /home/xtrader/Test/XRiskJudge/CFFEX_Ticker_List.yml
+  StrategyPositionCheck: false

@@ -435,7 +435,7 @@ bool RiskEngine::Check(Message::PackMessage& msg)
         while(!m_RiskResponseQueue.Push(msg));
     }
     int end = Utils::getTimeUs();
-    FMTLOG(fmtlog::INF, "RiskEngine::Check Risk Check Latency:{}", end - start);
+    FMTLOG(fmtlog::INF, "RiskEngine::Check Risk Check Latency:{}us", end - start);
     return ret;
 }
 
@@ -487,7 +487,7 @@ bool RiskEngine::FlowLimited(Message::PackMessage& msg)
                 msg.OrderRequest.ErrorID =  Message::ERiskRejectedType::EFLOW_LIMITED;
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
                 fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg), 
-                                "OrderRequest FlowLimited, ErrorID:{:#X} flow:{} limit:{} Product:{} Account:{} EngineID:{:#X}",
+                                "OrderRequest FlowLimited, ErrorID:{} flow:{} limit:{} Product:{} Account:{} EngineID:{}",
                                 msg.OrderRequest.ErrorID, m_AccountFlowLimitedMap[Account], limitIt->second.FlowLimit,
                                 msg.OrderRequest.Product, msg.OrderRequest.Account, msg.OrderRequest.EngineID);
                 FMTLOG(fmtlog::WRN, "RiskEngine::FlowLimited Check failed, {}", msg.OrderRequest.ErrorMsg);
@@ -497,7 +497,7 @@ bool RiskEngine::FlowLimited(Message::PackMessage& msg)
                 msg.ActionRequest.ErrorID =  Message::ERiskRejectedType::EFLOW_LIMITED;
                 msg.ActionRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
                 fmt::format_to_n(msg.ActionRequest.ErrorMsg, sizeof(msg.ActionRequest.ErrorMsg), 
-                                "ActionRequest FlowLimited, ErrorID:{:#X} flow:{} limit:{} Account:{} EngineID:{:#X}",
+                                "ActionRequest FlowLimited, ErrorID:{} flow:{} limit:{} Account:{} EngineID:{}",
                                 msg.ActionRequest.ErrorID, m_AccountFlowLimitedMap[Account], limitIt->second.FlowLimit,
                                 msg.ActionRequest.Account, msg.ActionRequest.EngineID);
                 FMTLOG(fmtlog::WRN, "RiskEngine::FlowLimited Check failed, {}", msg.ActionRequest.ErrorMsg);
@@ -943,7 +943,7 @@ bool RiskEngine::SelfMatched(Message::PackMessage& msg)
                 msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ESELF_MATCHED;
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
                 fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
-                                "SelfMatched, ErrorID:{:#X} Product:{} Account:{} OrderToken:{}, Matched OrderRef:{}",
+                                "SelfMatched, ErrorID:{} Product:{} Account:{} OrderToken:{}, Matched OrderRef:{}",
                                 msg.OrderRequest.ErrorID, msg.OrderRequest.Product, msg.OrderRequest.Account, msg.OrderRequest.OrderToken, it->OrderRef);
                 FMTLOG(fmtlog::WRN, "RiskEngine::SelfMatched Check failed, {}", msg.OrderRequest.ErrorMsg);
                 break;
@@ -977,7 +977,7 @@ bool RiskEngine::CancelLimited(Message::PackMessage& msg)
                     msg.ActionRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
                     ret = false;
                     fmt::format_to_n(msg.ActionRequest.ErrorMsg, sizeof(msg.ActionRequest.ErrorMsg), 
-                                    "CancelLimited, ErrorID:{:#X} Product:{} Account:{} Ticker:{} OrderRef:{}, CancelRequestCount:{} Ticker Cancel Limit:{}",
+                                    "CancelLimited, ErrorID:{} Product:{} Account:{} Ticker:{} OrderRef:{}, CancelRequestCount:{} Ticker Cancel Limit:{}",
                                     msg.ActionRequest.ErrorID, it->second.Product, it->second.Account, tickerIt->second.Ticker, it->second.OrderRef,
                                     CancelRequestCount, tickerIt->second.CancelLimit);
                     FMTLOG(fmtlog::WRN, "RiskEngine::CancelLimited Check failed, {}", msg.ActionRequest.ErrorMsg);
@@ -993,7 +993,7 @@ bool RiskEngine::CancelLimited(Message::PackMessage& msg)
                         msg.ActionRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
                         ret = false;
                         fmt::format_to_n(msg.ActionRequest.ErrorMsg, sizeof(msg.ActionRequest.ErrorMsg), 
-                                        "CancelLimited, ErrorID:{:#X} Product:{} Account:{} Ticker:{} OrderRef:{}, CancelRequestCount:{} Order Cancel Limit:{}",
+                                        "CancelLimited, ErrorID:{} Product:{} Account:{} Ticker:{} OrderRef:{}, CancelRequestCount:{} Order Cancel Limit:{}",
                                         msg.ActionRequest.ErrorID, it->second.Product, it->second.Account, tickerIt->second.Ticker, 
                                         it->second.OrderRef, CancelRequestCount, tickerIt->second.OrderCancelLimit);
                         FMTLOG(fmtlog::WRN, "RiskEngine::CancelLimited Check failed, {}", msg.ActionRequest.ErrorMsg);

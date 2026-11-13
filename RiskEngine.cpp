@@ -220,16 +220,13 @@ void RiskEngine::HandleOrderStatus(const Message::PackMessage& msg)
         // Remove Pending Order
         {
             std::list<Message::TOrderStatus>& orderList = m_TickerPendingOrderListMap[OrderStatus.Ticker];
-            for (auto it = orderList.begin(); orderList.end() != it; )
+            auto it = std::find_if(orderList.begin(), orderList.end(),
+                [&](const Message::TOrderStatus& o) {
+                    return Utils::equalWith(o.OrderRef, OrderStatus.OrderRef);
+                });
+            if (it != orderList.end()) 
             {
-                if(Utils::equalWith(it->OrderRef, OrderStatus.OrderRef))
-                {
-                    orderList.erase(it++);
-                }
-                else
-                {
-                    it++;
-                }
+                orderList.erase(it);
             }
             for(auto it = orderList.begin(); orderList.end() != it; it++)
             {

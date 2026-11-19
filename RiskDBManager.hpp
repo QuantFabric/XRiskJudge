@@ -2,6 +2,7 @@
 #define RISKDBMANAGER_HPP
 
 #include <fmt/core.h>
+#include "SafeUtils.hpp"
 #include "Singleton.hpp"
 #include "Util.hpp"
 #include "FMTLogger.hpp"
@@ -31,12 +32,12 @@ public:
         if(!ret)
         {
             FMTLOG(fmtlog::WRN, "RiskDBManager::UpdateRiskLimitTable failed, ErrorMsg:{} sql:{}", errorString, sql);
-            fmt::format_to_n(errorBuffer, sizeof(errorBuffer), "ErrorMsg:{} SQL:{}", errorString, sql);
+            XRiskJudge::FormatToFixedBuffer(errorBuffer, "ErrorMsg:{} SQL:{}", errorString, sql);
         }
         else
         {
             FMTLOG(fmtlog::INF, "RiskDBManager::UpdateRiskLimitTable successed, sql:{}", sql);
-            fmt::format_to_n(errorBuffer, sizeof(errorBuffer), "SQL:{}", sql);
+            XRiskJudge::FormatToFixedBuffer(errorBuffer, "SQL:{}", sql);
         }
         errorString = errorBuffer;
         return ret;
@@ -72,12 +73,12 @@ public:
         if(!ret)
         {
             FMTLOG(fmtlog::WRN, "RiskDBManager::UpdatePositionLimitTable failed, ErrorMsg:{} sql:{}", errorString, sql);
-            fmt::format_to_n(errorBuffer, sizeof(errorBuffer), "ErrorMsg:{} SQL:{}", errorString, sql);
+            XRiskJudge::FormatToFixedBuffer(errorBuffer, "ErrorMsg:{} SQL:{}", errorString, sql);
         }
         else
         {
             FMTLOG(fmtlog::INF, "RiskDBManager::UpdatePositionLimitTable successed, sql:{}", sql);
-            fmt::format_to_n(errorBuffer, sizeof(errorBuffer), "SQL:{}", sql);
+            XRiskJudge::FormatToFixedBuffer(errorBuffer, "SQL:{}", sql);
         }
         errorString = errorBuffer;
         return ret;
@@ -102,12 +103,12 @@ public:
         if(!ret)
         {
             FMTLOG(fmtlog::WRN, "RiskDBManager::UpdateAccountLockedTable failed, ErrorMsg:{} sql:{}", errorString, sql);
-            fmt::format_to_n(errorBuffer, sizeof(errorBuffer), "ErrorMsg:{} SQL:{}", errorString, sql);
+            XRiskJudge::FormatToFixedBuffer(errorBuffer, "ErrorMsg:{} SQL:{}", errorString, sql);
         }
         else
         {
             FMTLOG(fmtlog::INF, "RiskDBManager::UpdateAccountLockedTable successed, sql:{}", sql);
-            fmt::format_to_n(errorBuffer, sizeof(errorBuffer), "SQL:{}", sql);
+            XRiskJudge::FormatToFixedBuffer(errorBuffer, "SQL:{}", sql);
         }
         errorString = errorBuffer;
         return ret;

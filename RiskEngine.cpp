@@ -2,9 +2,9 @@
 
 
 Utils::LockFreeQueue<Message::PackMessage> RiskEngine::m_RiskResponseQueue(1 << 12);
-phmap::node_hash_map<RiskLimitKey,Message::TRiskReport,RiskLimitKeyHash> RiskEngine::m_RiskLimitMap;
-phmap::node_hash_map<VirtualPositionKey,Message::TRiskReport,VirtualPositionKeyHash> RiskEngine::m_StrategyPositionLimitMap;
-phmap::node_hash_map<RiskLimitKey,Message::TRiskReport,RiskLimitKeyHash> RiskEngine::m_AccountLockedMap;
+phmap::flat_hash_map<RiskLimitKey,Message::TRiskReport,RiskLimitKeyHash> RiskEngine::m_RiskLimitMap;
+phmap::flat_hash_map<VirtualPositionKey,Message::TRiskReport,VirtualPositionKeyHash> RiskEngine::m_StrategyPositionLimitMap;
+phmap::flat_hash_map<RiskLimitKey,Message::TRiskReport,RiskLimitKeyHash> RiskEngine::m_AccountLockedMap;
 
 
 RiskEngine::RiskEngine()
@@ -76,7 +76,7 @@ void RiskEngine::Start()
 
     // Update App Status
     InitAppStatus();
-    
+
     m_WorkThread = new std::thread(&RiskEngine::WorkThreadFunc, this);
     m_RiskJudgeServer->Join();
     m_WorkThread->join();
@@ -89,7 +89,7 @@ void RiskEngine::RegisterClient(const char *ip, unsigned int port)
     sleep(1);
     Message::TLoginRequest login;
     login.ClientType = Message::EClientType::EXRISKJUDGE;
-    fmt::format_to_n(login.Account, sizeof(login.Account), "{}", APP_NAME);
+    XRiskJudge::FormatToFixedBuffer(login.Account, "{}", APP_NAME);
     m_HPPackClient->Login(login);
 }
 
@@ -102,11 +102,11 @@ void RiskEngine::WorkThreadFunc()
     memset(&message, 0, sizeof(message));
     message.MessageType = Message::EMessageType::EEventLog;
     message.EventLog.Level = Message::EEventLogLevel::EINFO;
-    fmt::format_to_n(message.EventLog.App, sizeof(message.EventLog.App), "{}", APP_NAME);
-    fmt::format_to_n(message.EventLog.Event, sizeof(message.EventLog.Event), 
-                    "Risk Service {} Start, RiskServerName:{}", 
+    XRiskJudge::FormatToFixedBuffer(message.EventLog.App, "{}", APP_NAME);
+    XRiskJudge::FormatToFixedBuffer(message.EventLog.Event,
+                    "Risk Service {} Start, RiskServerName:{}",
                     m_XRiskJudgeConfig.RiskID, m_XRiskJudgeConfig.RiskServerName);
-    fmt::format_to_n(message.EventLog.UpdateTime, sizeof(message.EventLog.UpdateTime), "{}", Utils::getCurrentTimeUs());
+    XRiskJudge::FormatToFixedBuffer(message.EventLog.UpdateTime, "{}", Utils::getCurrentTimeUs());
     HandleRequest(message);
 
     while (true)
@@ -224,7 +224,7 @@ void RiskEngine::HandleOrderStatus(const Message::PackMessage& msg)
                 [&](const Message::TOrderStatus& o) {
                     return Utils::equalWith(o.OrderRef, OrderStatus.OrderRef);
                 });
-            if (it != orderList.end()) 
+            if (it != orderList.end())
             {
                 orderList.erase(it);
             }
@@ -257,7 +257,7 @@ void RiskEngine::HandleOrderStatus(const Message::PackMessage& msg)
     // 更新策略虚拟持仓
     {
         if(OrderStatus.OrderStatus == Message::EOrderStatusType::EALLTRADED ||
-            OrderStatus.OrderStatus == Message::EOrderStatusType::EPARTTRADED_CANCELLED) 
+            OrderStatus.OrderStatus == Message::EOrderStatusType::EPARTTRADED_CANCELLED)
         {
             UpdateStrategyPosition(OrderStatus);
         }
@@ -272,10 +272,10 @@ void RiskEngine::HandleOrderStatus(const Message::PackMessage& msg)
 void RiskEngine::HandleAccountPosition(const Message::PackMessage& msg)
 {
     VirtualPositionKey key;
-    key.Account = msg.AccountPosition.Account;   
-    key.Ticker = msg.AccountPosition.Ticker; 
+    key.Account = msg.AccountPosition.Account;
+    key.Ticker = msg.AccountPosition.Ticker;
     key.EngineID = 0;
-    
+
     auto it = m_StrategyPositionLimitMap.find(key);
     if (it == m_StrategyPositionLimitMap.end())
         return ; // 未配置限制，通过
@@ -292,8 +292,8 @@ void RiskEngine::HandleAccountPosition(const Message::PackMessage& msg)
         accountPos.ShortVolume = msg.AccountPosition.StockPosition.ShortPosition;
     }
 
-    fmt::format_to_n(accountPos.RiskID, sizeof(accountPos.RiskID), "{}", m_XRiskJudgeConfig.RiskID);
-    fmt::format_to_n(accountPos.UpdateTime, sizeof(accountPos.UpdateTime), "{}", Utils::getCurrentTimeUs());
+    XRiskJudge::FormatToFixedBuffer(accountPos.RiskID, "{}", m_XRiskJudgeConfig.RiskID);
+    XRiskJudge::FormatToFixedBuffer(accountPos.UpdateTime, "{}", Utils::getCurrentTimeUs());
     // Update SQLite PositionLimitTable
     std::string SQL;
     std::string errorString;
@@ -316,11 +316,11 @@ void RiskEngine::HandleOrderRequest(Message::PackMessage& msg)
     // 风控初始化检查
     if(Message::EMessageType::EOrderRequest == msg.MessageType && Message::ERiskStatusType::ECHECK_INIT == msg.OrderRequest.RiskStatus)
     {
-        fmt::format_to_n(msg.OrderRequest.RiskID, sizeof(msg.OrderRequest.RiskID), "{}", m_XRiskJudgeConfig.RiskID);
+        XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.RiskID, "{}", m_XRiskJudgeConfig.RiskID);
         msg.OrderRequest.ErrorID = -1;
-        fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg), "{}", "Risk Check Init");
+        XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg, "{}", "Risk Check Init");
         while(!m_RiskResponseQueue.Push(msg));
-        FMTLOG(fmtlog::INF, "RiskEngine::HandleOrderRequest Risk Check Init, Ticker:{} Account:{} ChannelID:{}", 
+        FMTLOG(fmtlog::INF, "RiskEngine::HandleOrderRequest Risk Check Init, Ticker:{} Account:{} ChannelID:{}",
                 msg.OrderRequest.Ticker, msg.OrderRequest.Account, msg.ChannelID);
         return;
     }
@@ -367,12 +367,12 @@ bool RiskEngine::Check(Message::PackMessage& msg)
         if(m_XRiskJudgeConfig.StrategyPositionCheck)
         {
             // Strategy Position Limit  Check
-            if (ret && !StrategyPositionLimitCheck(msg)) 
+            if (ret && !StrategyPositionLimitCheck(msg))
             {
                 ret = false;
             }
             // Account Position Limit  Check
-            if (ret && !AccountPositionLimitCheck(msg)) 
+            if (ret && !AccountPositionLimitCheck(msg))
             {
                 ret = false;
             }
@@ -382,12 +382,12 @@ bool RiskEngine::Check(Message::PackMessage& msg)
             if(Message::EMessageType::EOrderRequest == msg.MessageType)
             {
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_PASS;
-                fmt::format_to_n(msg.OrderRequest.RiskID, sizeof(msg.OrderRequest.RiskID), "{}", m_XRiskJudgeConfig.RiskID);
+                XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.RiskID, "{}", m_XRiskJudgeConfig.RiskID);
             }
             else if(Message::EMessageType::EActionRequest == msg.MessageType)
             {
                 msg.ActionRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_PASS;
-                fmt::format_to_n(msg.ActionRequest.RiskID, sizeof(msg.ActionRequest.RiskID), "{}", m_XRiskJudgeConfig.RiskID);
+                XRiskJudge::FormatToFixedBuffer(msg.ActionRequest.RiskID, "{}", m_XRiskJudgeConfig.RiskID);
             }
         }
         else
@@ -395,12 +395,12 @@ bool RiskEngine::Check(Message::PackMessage& msg)
             if(Message::EMessageType::EOrderRequest == msg.MessageType)
             {
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                fmt::format_to_n(msg.OrderRequest.RiskID, sizeof(msg.OrderRequest.RiskID), "{}", m_XRiskJudgeConfig.RiskID);
+                XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.RiskID, "{}", m_XRiskJudgeConfig.RiskID);
             }
             else if(Message::EMessageType::EActionRequest == msg.MessageType)
             {
                 msg.ActionRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                fmt::format_to_n(msg.ActionRequest.RiskID, sizeof(msg.ActionRequest.RiskID), "{}", m_XRiskJudgeConfig.RiskID);
+                XRiskJudge::FormatToFixedBuffer(msg.ActionRequest.RiskID, "{}", m_XRiskJudgeConfig.RiskID);
             }
             Message::PackMessage message;
             memset(&message, 0, sizeof(message));
@@ -408,21 +408,21 @@ bool RiskEngine::Check(Message::PackMessage& msg)
             Message::TRiskReport RiskEvent;
             memset(&RiskEvent, 0, sizeof(RiskEvent));
             RiskEvent.ReportType = Message::ERiskReportType::ERISK_EVENTLOG;
-            fmt::format_to_n(RiskEvent.RiskID, sizeof(RiskEvent.RiskID), "{}", m_XRiskJudgeConfig.RiskID);
+            XRiskJudge::FormatToFixedBuffer(RiskEvent.RiskID, "{}", m_XRiskJudgeConfig.RiskID);
             if(Message::EMessageType::EOrderRequest == msg.MessageType)
             {
-                fmt::format_to_n(RiskEvent.Account, sizeof(RiskEvent.Account), "{}", msg.OrderRequest.Account);
-                fmt::format_to_n(RiskEvent.Ticker, sizeof(RiskEvent.Ticker), "{}", msg.OrderRequest.Ticker);
-                fmt::format_to_n(RiskEvent.Event, sizeof(RiskEvent.Event), "{}", msg.OrderRequest.ErrorMsg);
-                fmt::format_to_n(RiskEvent.Trader, sizeof(RiskEvent.Trader), "{:#X}", msg.OrderRequest.EngineID);
-                fmt::format_to_n(RiskEvent.UpdateTime, sizeof(RiskEvent.UpdateTime), "{}", Utils::getCurrentTimeUs());
+                XRiskJudge::FormatToFixedBuffer(RiskEvent.Account, "{}", msg.OrderRequest.Account);
+                XRiskJudge::FormatToFixedBuffer(RiskEvent.Ticker, "{}", msg.OrderRequest.Ticker);
+                XRiskJudge::FormatToFixedBuffer(RiskEvent.Event, "{}", msg.OrderRequest.ErrorMsg);
+                XRiskJudge::FormatToFixedBuffer(RiskEvent.Trader, "{:#X}", msg.OrderRequest.EngineID);
+                XRiskJudge::FormatToFixedBuffer(RiskEvent.UpdateTime, "{}", Utils::getCurrentTimeUs());
             }
             else if(Message::EMessageType::EActionRequest == msg.MessageType)
             {
-                fmt::format_to_n(RiskEvent.Account, sizeof(RiskEvent.Account), "{}", msg.ActionRequest.Account);
-                fmt::format_to_n(RiskEvent.Event, sizeof(RiskEvent.Event), "{}", msg.ActionRequest.ErrorMsg);
-                fmt::format_to_n(RiskEvent.Trader, sizeof(RiskEvent.Trader), "{:#X}", msg.ActionRequest.EngineID);
-                fmt::format_to_n(RiskEvent.UpdateTime, sizeof(RiskEvent.UpdateTime), "{}", Utils::getCurrentTimeUs());
+                XRiskJudge::FormatToFixedBuffer(RiskEvent.Account, "{}", msg.ActionRequest.Account);
+                XRiskJudge::FormatToFixedBuffer(RiskEvent.Event, "{}", msg.ActionRequest.ErrorMsg);
+                XRiskJudge::FormatToFixedBuffer(RiskEvent.Trader, "{:#X}", msg.ActionRequest.EngineID);
+                XRiskJudge::FormatToFixedBuffer(RiskEvent.UpdateTime, "{}", Utils::getCurrentTimeUs());
             }
             memcpy(&message.RiskReport, &RiskEvent, sizeof(message.RiskReport));
             // 风控拦截事件报告
@@ -483,7 +483,7 @@ bool RiskEngine::FlowLimited(Message::PackMessage& msg)
             {
                 msg.OrderRequest.ErrorID =  Message::ERiskRejectedType::EFLOW_LIMITED;
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg), 
+                XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                 "OrderRequest FlowLimited, ErrorID:{} flow:{} limit:{} Product:{} Account:{} EngineID:{}",
                                 msg.OrderRequest.ErrorID, m_AccountFlowLimitedMap[Account], limitIt->second.FlowLimit,
                                 msg.OrderRequest.Product, msg.OrderRequest.Account, msg.OrderRequest.EngineID);
@@ -493,7 +493,7 @@ bool RiskEngine::FlowLimited(Message::PackMessage& msg)
             {
                 msg.ActionRequest.ErrorID =  Message::ERiskRejectedType::EFLOW_LIMITED;
                 msg.ActionRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                fmt::format_to_n(msg.ActionRequest.ErrorMsg, sizeof(msg.ActionRequest.ErrorMsg), 
+                XRiskJudge::FormatToFixedBuffer(msg.ActionRequest.ErrorMsg,
                                 "ActionRequest FlowLimited, ErrorID:{} flow:{} limit:{} Account:{} EngineID:{}",
                                 msg.ActionRequest.ErrorID, m_AccountFlowLimitedMap[Account], limitIt->second.FlowLimit,
                                 msg.ActionRequest.Account, msg.ActionRequest.EngineID);
@@ -512,7 +512,7 @@ bool RiskEngine::FlowLimited(Message::PackMessage& msg)
                 {
                     msg.OrderRequest.ErrorID =  Message::ERiskRejectedType::EREQUEST_LIMITED;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg), 
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "OrderRequest Limited, Account:{} Ticker:{} OrderCount:{} OrderLimit:{}",
                                     msg.OrderRequest.Account, msg.OrderRequest.Ticker, limitIt->second.OrderCount + 1, limitIt->second.OrderLimit);
                     FMTLOG(fmtlog::WRN, "RiskEngine::FlowLimited Check failed, {}", msg.OrderRequest.ErrorMsg);
@@ -521,7 +521,7 @@ bool RiskEngine::FlowLimited(Message::PackMessage& msg)
                 {
                     msg.ActionRequest.ErrorID =  Message::ERiskRejectedType::EREQUEST_LIMITED;
                     msg.ActionRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.ActionRequest.ErrorMsg, sizeof(msg.ActionRequest.ErrorMsg), 
+                    XRiskJudge::FormatToFixedBuffer(msg.ActionRequest.ErrorMsg,
                                     "ActionRequest Limited, Account:{} OrderRef:{} OrderCount:{} OrderLimit:{}",
                                     msg.ActionRequest.Account, msg.ActionRequest.OrderRef, limitIt->second.OrderCount + 1, limitIt->second.OrderLimit);
                     FMTLOG(fmtlog::WRN, "RiskEngine::FlowLimited Check failed, {}", msg.ActionRequest.ErrorMsg);
@@ -536,7 +536,7 @@ bool RiskEngine::FlowLimited(Message::PackMessage& msg)
         {
             msg.OrderRequest.ErrorID =  Message::ERiskRejectedType::EACCOUNT_NOT_FOUND;
             msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-            fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg), 
+            XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                             "OrderRequest FlowLimited, Account:{} not found FlowLimit",
                             msg.OrderRequest.Product, msg.OrderRequest.Account);
             FMTLOG(fmtlog::WRN, "RiskEngine::FlowLimited Check failed, {}", msg.OrderRequest.ErrorMsg);
@@ -545,7 +545,7 @@ bool RiskEngine::FlowLimited(Message::PackMessage& msg)
         {
             msg.ActionRequest.ErrorID =  Message::ERiskRejectedType::EACCOUNT_NOT_FOUND;
             msg.ActionRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-            fmt::format_to_n(msg.ActionRequest.ErrorMsg, sizeof(msg.ActionRequest.ErrorMsg), 
+            XRiskJudge::FormatToFixedBuffer(msg.ActionRequest.ErrorMsg,
                             "ActionRequest FlowLimited, Account:{} not found FlowLimit", msg.ActionRequest.Account);
             FMTLOG(fmtlog::WRN, "RiskEngine::FlowLimited Check failed, {}", msg.ActionRequest.ErrorMsg);
         }
@@ -569,7 +569,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                 ret = false;
                 msg.OrderRequest.ErrorID = Message::ERiskRejectedType::EACCOUNT_LOCKED_ALL;
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                 "AccountLocked, Account:{} ban BUY/SELL", msg.OrderRequest.Account);
                 FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                 return ret;
@@ -579,7 +579,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                 ret = false;
                 msg.OrderRequest.ErrorID = Message::ERiskRejectedType::EACCOUNT_LOCKED_OPEN;
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                 "AccountLocked, Account:{} ban OPEN", msg.OrderRequest.Account);
                 FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                 return ret;
@@ -589,7 +589,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                 ret = false;
                 msg.OrderRequest.ErrorID = Message::ERiskRejectedType::EACCOUNT_LOCKED_CLOSE;
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                 "AccountLocked, Account:{} ban CLOSE", msg.OrderRequest.Account);
                 FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                 return ret;
@@ -601,7 +601,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                     ret = false;
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::EACCOUNT_LOCKED_BUY;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "AccountLocked, Account:{} ban BUY", msg.OrderRequest.Account);
                     FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                     return ret;
@@ -611,7 +611,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                     ret = false;
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::EACCOUNT_LOCKED_BUY_OPEN;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "AccountLocked, Account:{} ban BUY OPEN", msg.OrderRequest.Account);
                     FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                     return ret;
@@ -621,7 +621,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                     ret = false;
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::EACCOUNT_LOCKED_BUY_CLOSE;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "AccountLocked, Account:{} ban BUY CLOSE", msg.OrderRequest.Account);
                     FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                     return ret;
@@ -631,7 +631,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                     ret = false;
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::EACCOUNT_LOCKED_BUY_CLOSE_TODAY;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "AccountLocked, Account:{} ban BUY CLOSE TODAY", msg.OrderRequest.Account);
                     FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                     return ret;
@@ -641,7 +641,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                     ret = false;
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::EACCOUNT_LOCKED_BUY_CLOSE_YESTODAY;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "AccountLocked, Account:{} ban BUY CLOSE YESTODAY", msg.OrderRequest.Account);
                     FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                     return ret;
@@ -654,7 +654,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                     ret = false;
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::EACCOUNT_LOCKED_SELL;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "AccountLocked, Account:{} ban SELL", msg.OrderRequest.Account);
                     FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                     return ret;
@@ -664,7 +664,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                     ret = false;
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::EACCOUNT_LOCKED_SELL_OPEN;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "AccountLocked, Account:{} ban SELL OPEN", msg.OrderRequest.Account);
                     FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                     return ret;
@@ -674,7 +674,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                     ret = false;
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::EACCOUNT_LOCKED_SELL_CLOSE;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "AccountLocked, Account:{} ban SELL CLOSE", msg.OrderRequest.Account);
                     FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                     return ret;
@@ -684,7 +684,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                     ret = false;
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::EACCOUNT_LOCKED_SELL_CLOSE_TODAY;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "AccountLocked, Account:{} ban SELL CLOSE TODAY", msg.OrderRequest.Account);
                     FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                     return ret;
@@ -694,7 +694,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                     ret = false;
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::EACCOUNT_LOCKED_SELL_CLOSE_YESTODAY;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "AccountLocked, Account:{} ban SELL CLOSE YESTODAY", msg.OrderRequest.Account);
                     FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                     return ret;
@@ -717,7 +717,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                 ret = false;
                 msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_LOCKED_ALL;
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                 "AccountLocked, Account:{} Ticker:{} ban BUY/SELL", msg.OrderRequest.Account, msg.OrderRequest.Ticker);
                 FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                 return ret;
@@ -727,7 +727,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                 ret = false;
                 msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_LOCKED_OPEN;
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                 "AccountLocked, Account:{} Ticker:{} ban OPEN", msg.OrderRequest.Account, msg.OrderRequest.Ticker);
                 FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                 return ret;
@@ -737,7 +737,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                 ret = false;
                 msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_LOCKED_CLOSE;
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                 "AccountLocked, Account:{} Ticker:{} ban CLOSE", msg.OrderRequest.Account, msg.OrderRequest.Ticker);
                 FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                 return ret;
@@ -749,7 +749,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                     ret = false;
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_LOCKED_BUY;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "AccountLocked, Account:{} Ticker:{} ban BUY", msg.OrderRequest.Account, msg.OrderRequest.Ticker);
                     FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                     return ret;
@@ -759,7 +759,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                     ret = false;
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_LOCKED_BUY_OPEN;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "AccountLocked, Account:{} Ticker:{} ban BUY OPEN", msg.OrderRequest.Account, msg.OrderRequest.Ticker);
                     FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                     return ret;
@@ -769,7 +769,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                     ret = false;
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_LOCKED_BUY_CLOSE;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "AccountLocked, Account:{} Ticker:{} ban BUY CLOSE", msg.OrderRequest.Account, msg.OrderRequest.Ticker);
                     FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                     return ret;
@@ -779,7 +779,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                     ret = false;
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_LOCKED_BUY_CLOSE_TODAY;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "AccountLocked, Account:{} Ticker:{} ban BUY CLOSE TODAY", msg.OrderRequest.Account, msg.OrderRequest.Ticker);
                     FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                     return ret;
@@ -789,7 +789,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                     ret = false;
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_LOCKED_BUY_CLOSE_YESTODAY;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "AccountLocked, Account:{} Ticker:{} ban BUY CLOSE YESTODAY", msg.OrderRequest.Account, msg.OrderRequest.Ticker);
                     FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                     return ret;
@@ -802,7 +802,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                     ret = false;
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_LOCKED_SELL;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "AccountLocked, Account:{} Ticker:{} ban SELL", msg.OrderRequest.Account, msg.OrderRequest.Ticker);
                     FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                     return ret;
@@ -812,7 +812,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                     ret = false;
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_LOCKED_SELL_OPEN;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "AccountLocked, Account:{} Ticker:{} ban SELL OPEN", msg.OrderRequest.Account, msg.OrderRequest.Ticker);
                     FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                     return ret;
@@ -822,7 +822,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                     ret = false;
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_LOCKED_SELL_CLOSE;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "AccountLocked, Account:{} Ticker:{} ban SELL CLOSE", msg.OrderRequest.Account, msg.OrderRequest.Ticker);
                     FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                     return ret;
@@ -832,7 +832,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                     ret = false;
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_LOCKED_SELL_CLOSE_TODAY;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "AccountLocked, Account:{} Ticker:{} ban SELL CLOSE TODAY", msg.OrderRequest.Account, msg.OrderRequest.Ticker);
                     FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                     return ret;
@@ -842,7 +842,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
                     ret = false;
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_LOCKED_SELL_CLOSE_YESTODAY;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "AccountLocked, Account:{} Ticker:{} ban SELL CLOSE YESTODAY", msg.OrderRequest.Account, msg.OrderRequest.Ticker);
                     FMTLOG(fmtlog::WRN, "RiskEngine::AccountLocked Check failed, {}", msg.OrderRequest.ErrorMsg);
                     return ret;
@@ -856,7 +856,7 @@ bool RiskEngine::AccountLocked(Message::PackMessage& msg)
 bool RiskEngine::TransactionCommand(Message::PackMessage& msg)
 {
     bool ret = true;
-    if(Message::EMessageType::EOrderRequest == msg.MessageType)                 
+    if(Message::EMessageType::EOrderRequest == msg.MessageType)
     {
         auto tickerIt = m_TickerPropertyMap.find(msg.OrderRequest.Ticker);
         if(tickerIt != m_TickerPropertyMap.end())
@@ -865,17 +865,17 @@ bool RiskEngine::TransactionCommand(Message::PackMessage& msg)
             {
                 msg.OrderRequest.ErrorID = Message::ERiskRejectedType::EVOLUME_EXCEEDED;
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                 "TransactionCommand, Account:{} Ticker:{} Volume:{} exceeded MaxVolume:{}",
                                 msg.OrderRequest.Account, msg.OrderRequest.Ticker, msg.OrderRequest.Volume, tickerIt->second.MaxVolume);
                 FMTLOG(fmtlog::WRN, "RiskEngine::TransactionCommand Check failed, {}", msg.OrderRequest.ErrorMsg);
                 ret = false;
             }
-            else if(isPriceInvalid(msg.OrderRequest.Price, tickerIt->second.PriceTick)) 
+            else if(isPriceInvalid(msg.OrderRequest.Price, tickerIt->second.PriceTick))
             {
                 msg.OrderRequest.ErrorID = Message::ERiskRejectedType::EINVALID_PRICE;
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                 "TransactionCommand, Account:{} Ticker:{} Price:{} invalid PriceTick:{}",
                                 msg.OrderRequest.Account, msg.OrderRequest.Ticker, msg.OrderRequest.Price, tickerIt->second.PriceTick);
                 FMTLOG(fmtlog::WRN, "RiskEngine::TransactionCommand Check failed, {}", msg.OrderRequest.ErrorMsg);
@@ -886,7 +886,7 @@ bool RiskEngine::TransactionCommand(Message::PackMessage& msg)
         {
             msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_NOT_FOUND;
             msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-            fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+            XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                             "TransactionCommand, Account:{} Ticker:{} not found",
                             msg.OrderRequest.Account, msg.OrderRequest.Ticker);
             FMTLOG(fmtlog::WRN, "RiskEngine::TransactionCommand Check failed, {}", msg.OrderRequest.ErrorMsg);
@@ -939,7 +939,7 @@ bool RiskEngine::SelfMatched(Message::PackMessage& msg)
             {
                 msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ESELF_MATCHED;
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                 "SelfMatched, ErrorID:{} Product:{} Account:{} OrderToken:{}, Matched OrderRef:{}",
                                 msg.OrderRequest.ErrorID, msg.OrderRequest.Product, msg.OrderRequest.Account, msg.OrderRequest.OrderToken, it->OrderRef);
                 FMTLOG(fmtlog::WRN, "RiskEngine::SelfMatched Check failed, {}", msg.OrderRequest.ErrorMsg);
@@ -973,7 +973,7 @@ bool RiskEngine::CancelLimited(Message::PackMessage& msg)
                     msg.ActionRequest.ErrorID = Message::ERiskRejectedType::ETICKER_ACTION_LIMITED;
                     msg.ActionRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
                     ret = false;
-                    fmt::format_to_n(msg.ActionRequest.ErrorMsg, sizeof(msg.ActionRequest.ErrorMsg), 
+                    XRiskJudge::FormatToFixedBuffer(msg.ActionRequest.ErrorMsg,
                                     "CancelLimited, ErrorID:{} Product:{} Account:{} Ticker:{} OrderRef:{}, CancelRequestCount:{} Ticker Cancel Limit:{}",
                                     msg.ActionRequest.ErrorID, it->second.Product, it->second.Account, tickerIt->second.Ticker, it->second.OrderRef,
                                     CancelRequestCount, tickerIt->second.CancelLimit);
@@ -989,9 +989,9 @@ bool RiskEngine::CancelLimited(Message::PackMessage& msg)
                         msg.ActionRequest.ErrorID = Message::ERiskRejectedType::EORDER_ACTION_LIMITED;
                         msg.ActionRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
                         ret = false;
-                        fmt::format_to_n(msg.ActionRequest.ErrorMsg, sizeof(msg.ActionRequest.ErrorMsg), 
+                        XRiskJudge::FormatToFixedBuffer(msg.ActionRequest.ErrorMsg,
                                         "CancelLimited, ErrorID:{} Product:{} Account:{} Ticker:{} OrderRef:{}, CancelRequestCount:{} Order Cancel Limit:{}",
-                                        msg.ActionRequest.ErrorID, it->second.Product, it->second.Account, tickerIt->second.Ticker, 
+                                        msg.ActionRequest.ErrorID, it->second.Product, it->second.Account, tickerIt->second.Ticker,
                                         it->second.OrderRef, CancelRequestCount, tickerIt->second.OrderCancelLimit);
                         FMTLOG(fmtlog::WRN, "RiskEngine::CancelLimited Check failed, {}", msg.ActionRequest.ErrorMsg);
                     }
@@ -1002,7 +1002,7 @@ bool RiskEngine::CancelLimited(Message::PackMessage& msg)
     return ret;
 }
 
-bool RiskEngine::StrategyPositionLimitCheck(Message::PackMessage& msg) 
+bool RiskEngine::StrategyPositionLimitCheck(Message::PackMessage& msg)
 {
     if(msg.MessageType != Message::EMessageType::EOrderRequest)
         return true; // 撤单不检查持仓
@@ -1010,51 +1010,51 @@ bool RiskEngine::StrategyPositionLimitCheck(Message::PackMessage& msg)
         return true; // 撤单不检查持仓
 
     VirtualPositionKey key;
-    key.Account =  msg.OrderRequest.Account;   
+    key.Account =  msg.OrderRequest.Account;
     key.Ticker =  msg.OrderRequest.Ticker;
     key.EngineID = msg.OrderRequest.EngineID;
     bool ret = true;
     auto positionIt = m_StrategyPositionLimitMap.find(key);
-    if(positionIt != m_StrategyPositionLimitMap.end()) 
+    if(positionIt != m_StrategyPositionLimitMap.end())
     {
         int volume = msg.OrderRequest.Volume;
         int direction = msg.OrderRequest.Direction;
         int longVolume = positionIt->second.LongVolume;
         int shortVolume = positionIt->second.ShortVolume;
-        
-        if(direction == Message::EOrderDirection::EBUY) 
+
+        if(direction == Message::EOrderDirection::EBUY)
         {
-            if(longVolume + volume > positionIt->second.LongLimit) 
+            if(longVolume + volume > positionIt->second.LongLimit)
             {
                 ret = false;
-                msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_LONG_LIMIT; 
+                msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_LONG_LIMIT;
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                 "StrategyPositionLimit exceeded, Account:{} Ticker:{} EngineID:{} Long:{} Volume:{} LongLimit:{}",
                                 key.Account,key.Ticker,  key.EngineID, longVolume, volume, positionIt->second.LongLimit);
                 FMTLOG(fmtlog::WRN, "StrategyPositionLimitCheck failed, {}", msg.OrderRequest.ErrorMsg);
             }
-        } 
-        else 
-        { 
-            if(shortVolume + volume > positionIt->second.ShortLimit) 
+        }
+        else
+        {
+            if(shortVolume + volume > positionIt->second.ShortLimit)
             {
                 ret = false;
-                msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_SHORT_LIMIT; 
+                msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_SHORT_LIMIT;
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                 "StrategyPositionLimit exceeded, Account:{} Ticker:{} EngineID:{} Short:{} Volume:{} ShortLimit:{}",
                                 key.Account, key.Ticker, key.EngineID, shortVolume, volume, positionIt->second.ShortLimit);
                 FMTLOG(fmtlog::WRN, "StrategyPositionLimitCheck failed, {}", msg.OrderRequest.ErrorMsg);
-            }   
+            }
         }
     }
     else
     {
         ret = false;
-        msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_NOT_FOUND; 
+        msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_NOT_FOUND;
         msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-        fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+        XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                         "StrategyPositionLimit Account:{} Ticker:{} EngineID:{} not found LongLimit/ShortLimit",
                         key.Account, key.Ticker, key.EngineID);
         FMTLOG(fmtlog::WRN, "StrategyPositionLimitCheck failed, {}", msg.OrderRequest.ErrorMsg);
@@ -1093,14 +1093,14 @@ bool RiskEngine::AccountPositionLimitCheck(Message::PackMessage& msg)
             {
                 newLong += volume;
             }
-            else 
+            else
             {
                 // 买入平空头
                 if(volume > shortVol)
                 {
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_SHORT_INSUFFICIENT;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "short position insufficient, Account:{} Ticker:{} ShortPos:{} CloseVol:{}",
                                     key.Account, key.Ticker, shortVol, volume);
                     FMTLOG(fmtlog::WRN, "AccountPositionLimitCheck failed, {}", msg.OrderRequest.ErrorMsg);
@@ -1115,14 +1115,14 @@ bool RiskEngine::AccountPositionLimitCheck(Message::PackMessage& msg)
             {
                 newShort += volume;
             }
-            else 
+            else
             {
                 // 卖出平多头
                 if(volume > longVol)
                 {
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_LONG_INSUFFICIENT;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "long position insufficient, Account:{} Ticker:{} LongPos:{} CloseVol:{}",
                                     key.Account, key.Ticker, longVol, volume);
                     FMTLOG(fmtlog::WRN, "AccountPositionLimitCheck failed, {}", msg.OrderRequest.ErrorMsg);
@@ -1142,7 +1142,7 @@ bool RiskEngine::AccountPositionLimitCheck(Message::PackMessage& msg)
             {
                 msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_LONG_INSUFFICIENT;
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "Margin Sell Close long exceeds position, Account:{} Ticker:{} LongPos:{} CloseVol:{}",
                                     key.Account, key.Ticker, longVol, volume);
                 FMTLOG(fmtlog::WRN, "AccountPositionLimitCheck failed, {}", msg.OrderRequest.ErrorMsg);
@@ -1161,7 +1161,7 @@ bool RiskEngine::AccountPositionLimitCheck(Message::PackMessage& msg)
             {
                 msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_SHORT_INSUFFICIENT;
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "Repay Stock Buy Close short exceeds position, Account:{} Ticker:{} ShortPos:{} CloseVol:{}",
                                     key.Account, key.Ticker, shortVol, volume);
                 FMTLOG(fmtlog::WRN, "AccountPositionLimitCheck failed, {}", msg.OrderRequest.ErrorMsg);
@@ -1176,7 +1176,7 @@ bool RiskEngine::AccountPositionLimitCheck(Message::PackMessage& msg)
             {
                 msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_LONG_INSUFFICIENT;
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "Direct Repay Stock exceeds long position, Account:{} Ticker:{} LongPos:{} CloseVol:{}",
                                     key.Account, key.Ticker, longVol, volume);
                 FMTLOG(fmtlog::WRN, "AccountPositionLimitCheck failed, {}", msg.OrderRequest.ErrorMsg);
@@ -1187,7 +1187,7 @@ bool RiskEngine::AccountPositionLimitCheck(Message::PackMessage& msg)
             {
                 msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_SHORT_INSUFFICIENT;
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "Direct Repay Stock exceeds short position, Account:{} Ticker:{} ShortPos:{} CloseVol:{}",
                                     key.Account, key.Ticker, shortVol, volume);
                 FMTLOG(fmtlog::WRN, "AccountPositionLimitCheck failed, {}", msg.OrderRequest.ErrorMsg);
@@ -1203,7 +1203,7 @@ bool RiskEngine::AccountPositionLimitCheck(Message::PackMessage& msg)
             {
                 msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_LONG_INSUFFICIENT;
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                 "Long position exceeds limit, Account:{} Ticker:{} NewLong:{} Limit:{}",
                                 key.Account, key.Ticker, newLong, limit.LongLimit);
                 FMTLOG(fmtlog::WRN, "AccountPositionLimitCheck failed, {}", msg.OrderRequest.ErrorMsg);
@@ -1213,7 +1213,7 @@ bool RiskEngine::AccountPositionLimitCheck(Message::PackMessage& msg)
             {
                 msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_SHORT_INSUFFICIENT;
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                 "Short position exceeds limit, Account:{} Ticker:{} NewShort:{} Limit:{}",
                                 key.Account, key.Ticker, newShort, limit.ShortLimit);
                 FMTLOG(fmtlog::WRN, "AccountPositionLimitCheck failed, {}", msg.OrderRequest.ErrorMsg);
@@ -1223,7 +1223,7 @@ bool RiskEngine::AccountPositionLimitCheck(Message::PackMessage& msg)
             {
                 msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_LONG_INSUFFICIENT;
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                 "Margin Long position exceeds limit, Account:{} Ticker:{} NewLong:{} Limit:{}",
                                 key.Account, key.Ticker, newLong, limit.LongLimit);
                 FMTLOG(fmtlog::WRN, "AccountPositionLimitCheck failed, {}", msg.OrderRequest.ErrorMsg);
@@ -1233,7 +1233,7 @@ bool RiskEngine::AccountPositionLimitCheck(Message::PackMessage& msg)
             {
                 msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_SHORT_INSUFFICIENT;
                 msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                 "ShortSell position exceeds limit, Account:{} Ticker:{} NewShort:{} Limit:{}",
                                 key.Account, key.Ticker, newShort, limit.ShortLimit);
                 FMTLOG(fmtlog::WRN, "AccountPositionLimitCheck failed, {}", msg.OrderRequest.ErrorMsg);
@@ -1254,7 +1254,7 @@ bool RiskEngine::AccountPositionLimitCheck(Message::PackMessage& msg)
                 {
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_NET_LONG_LIMIT;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "Net exposure exceeds limit, Account:{} Ticker:{} Net:{} ExposureLowerLimit:{}",
                                     key.Account, key.Ticker, net, limit.ExposureLowerLimit);
                     FMTLOG(fmtlog::WRN, "AccountPositionLimitCheck failed, {}", msg.OrderRequest.ErrorMsg);
@@ -1269,7 +1269,7 @@ bool RiskEngine::AccountPositionLimitCheck(Message::PackMessage& msg)
                 {
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_NET_SHORT_LIMIT;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "Net exposure exceeds limit, Account:{} Ticker:{} Net:{} ExposureLowerLimit:{}",
                                     key.Account, key.Ticker, net, limit.ExposureLowerLimit);
                     FMTLOG(fmtlog::WRN, "AccountPositionLimitCheck failed, {}", msg.OrderRequest.ErrorMsg);
@@ -1289,7 +1289,7 @@ bool RiskEngine::AccountPositionLimitCheck(Message::PackMessage& msg)
                 {
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_NET_LONG_LIMIT;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "Net exposure exceeds limit, Account:{} Ticker:{} Net:{} ExposureUpperLimit:{}",
                                     key.Account, key.Ticker, net, limit.ExposureUpperLimit);
                     FMTLOG(fmtlog::WRN, "AccountPositionLimitCheck failed, {}", msg.OrderRequest.ErrorMsg);
@@ -1304,7 +1304,7 @@ bool RiskEngine::AccountPositionLimitCheck(Message::PackMessage& msg)
                 {
                     msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_NET_SHORT_LIMIT;
                     msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-                    fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+                    XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                                     "Net exposure exceeds limit, Account:{} Ticker:{} Net:{} ExposureUpperLimit:{}",
                                     key.Account, key.Ticker, net, limit.ExposureUpperLimit);
                     FMTLOG(fmtlog::WRN, "AccountPositionLimitCheck failed, {}", msg.OrderRequest.ErrorMsg);
@@ -1317,7 +1317,7 @@ bool RiskEngine::AccountPositionLimitCheck(Message::PackMessage& msg)
     {
         msg.OrderRequest.ErrorID = Message::ERiskRejectedType::ETICKER_NOT_FOUND;
         msg.OrderRequest.RiskStatus = Message::ERiskStatusType::ECHECKED_NOPASS;
-        fmt::format_to_n(msg.OrderRequest.ErrorMsg, sizeof(msg.OrderRequest.ErrorMsg),
+        XRiskJudge::FormatToFixedBuffer(msg.OrderRequest.ErrorMsg,
                         "Account:{} Ticker:{} not found LongLimit/ShortLimit/ExposureLowerLimit/ExposureUpperLimit",
                         key.Account, key.Ticker);
         FMTLOG(fmtlog::WRN, "AccountPositionLimitCheck failed, {}", msg.OrderRequest.ErrorMsg);
@@ -1340,13 +1340,13 @@ void RiskEngine::UpdateTickerRiskLimit(const Message::TOrderStatus& OrderStatus)
         {
             Message::TRiskReport& report = it->second;
             report.CancelCount += 1;
-            fmt::format_to_n(report.UpdateTime, sizeof(report.UpdateTime), "{}", Utils::getCurrentTimeUs());
+            XRiskJudge::FormatToFixedBuffer(report.UpdateTime, "{}", Utils::getCurrentTimeUs());
             // Update SQLite RiskLimitTable
             std::string SQL = fmt::format("UPDATE RiskLimitTable SET RiskID='{}', CancelCount={}, Trader='{}', UpdateTime='{}' WHERE Account='{}' AND Ticker='{}';",
                                         report.RiskID, report.CancelCount, report.Trader, report.UpdateTime, report.Account, report.Ticker);
             std::string errorString;
             bool ok = m_RiskDBManager->UpdateRiskLimitTable(SQL, "UPDATE", &RiskEngine::sqlite3_callback_RiskLimit, errorString);
-            fmt::format_to_n(report.Event, sizeof(report.Event), "{}", errorString);
+            XRiskJudge::FormatToFixedBuffer(report.Event, "{}", errorString);
             // Update Risk to Monitor
             {
                 Message::PackMessage message;
@@ -1369,15 +1369,15 @@ void RiskEngine::UpdateTickerRiskLimit(const Message::TOrderStatus& OrderStatus)
         auto it = m_RiskLimitMap.find(key);
         if(m_RiskLimitMap.end() != it)
         {
-            Message::TRiskReport& report = it->second; 
+            Message::TRiskReport& report = it->second;
             report.OrderCount += 1;
-            fmt::format_to_n(report.UpdateTime, sizeof(report.UpdateTime), "{}", Utils::getCurrentTimeUs());
+            XRiskJudge::FormatToFixedBuffer(report.UpdateTime, "{}", Utils::getCurrentTimeUs());
             // Update SQLite RiskLimitTable
             std::string SQL = fmt::format("UPDATE RiskLimitTable SET RiskID='{}', OrderCount={}, Trader='{}', UpdateTime='{}' WHERE Account='{}' AND Ticker='{}';",
                                         report.RiskID, report.OrderCount, report.Trader, report.UpdateTime, report.Account, report.Ticker);
             std::string errorString;
             bool ok = m_RiskDBManager->UpdateRiskLimitTable(SQL, "UPDATE", &RiskEngine::sqlite3_callback_RiskLimit, errorString);
-            fmt::format_to_n(report.Event, sizeof(report.Event), "{}", errorString);
+            XRiskJudge::FormatToFixedBuffer(report.Event, "{}", errorString);
             // Update Risk to Monitor
             {
                 Message::PackMessage message;
@@ -1388,7 +1388,7 @@ void RiskEngine::UpdateTickerRiskLimit(const Message::TOrderStatus& OrderStatus)
             }
             FMTLOG(fmtlog::INF, "RiskEngine::UpdateAccountRiskLimit, Update Order Counter, Account:{} Ticker:{} "
                                 "OrderRef:{} OrderStatus:{} OrderType:{} OrderCount:{}",
-                                OrderStatus.Account, OrderStatus.Ticker, OrderStatus.OrderRef, OrderStatus.OrderStatus, 
+                                OrderStatus.Account, OrderStatus.Ticker, OrderStatus.OrderRef, OrderStatus.OrderStatus,
                                 OrderStatus.OrderType, report.OrderCount);
         }
     }
@@ -1408,13 +1408,13 @@ void RiskEngine::UpdateAccountRiskLimit(const Message::TOrderStatus& OrderStatus
         {
             Message::TRiskReport& report = it->second;
             report.CancelCount += 1;
-            fmt::format_to_n(report.UpdateTime, sizeof(report.UpdateTime), "{}", Utils::getCurrentTimeUs());
+            XRiskJudge::FormatToFixedBuffer(report.UpdateTime, "{}", Utils::getCurrentTimeUs());
             // Update SQLite RiskLimitTable
             std::string SQL = fmt::format("UPDATE RiskLimitTable SET RiskID='{}', CancelCount={}, Trader='{}', UpdateTime='{}' WHERE Account='{}' AND Ticker='{}';",
                                         report.RiskID, report.CancelCount, report.Trader, report.UpdateTime, report.Account, report.Ticker);
             std::string errorString;
             bool ok = m_RiskDBManager->UpdateRiskLimitTable(SQL, "UPDATE", &RiskEngine::sqlite3_callback_RiskLimit, errorString);
-            fmt::format_to_n(report.Event, sizeof(report.Event), "{}", errorString);
+            XRiskJudge::FormatToFixedBuffer(report.Event, "{}", errorString);
             // Update Risk to Monitor
             {
                 Message::PackMessage message;
@@ -1437,15 +1437,15 @@ void RiskEngine::UpdateAccountRiskLimit(const Message::TOrderStatus& OrderStatus
         auto it = m_RiskLimitMap.find(key);
         if(m_RiskLimitMap.end() != it)
         {
-            Message::TRiskReport& report = it->second; 
+            Message::TRiskReport& report = it->second;
             report.OrderCount += 1;
-            fmt::format_to_n(report.UpdateTime, sizeof(report.UpdateTime), "{}", Utils::getCurrentTimeUs());
+            XRiskJudge::FormatToFixedBuffer(report.UpdateTime, "{}", Utils::getCurrentTimeUs());
             // Update SQLite RiskLimitTable
             std::string SQL = fmt::format("UPDATE RiskLimitTable SET RiskID='{}', OrderCount={}, Trader='{}', UpdateTime='{}' WHERE Account='{}' AND Ticker='{}';",
                                         report.RiskID, report.OrderCount, report.Trader, report.UpdateTime, report.Account, report.Ticker);
             std::string errorString;
             bool ok = m_RiskDBManager->UpdateRiskLimitTable(SQL, "UPDATE", &RiskEngine::sqlite3_callback_RiskLimit, errorString);
-            fmt::format_to_n(report.Event, sizeof(report.Event), "{}", errorString);
+            XRiskJudge::FormatToFixedBuffer(report.Event, "{}", errorString);
             // Update Risk to Monitor
             {
                 Message::PackMessage message;
@@ -1456,19 +1456,19 @@ void RiskEngine::UpdateAccountRiskLimit(const Message::TOrderStatus& OrderStatus
             }
             FMTLOG(fmtlog::INF, "RiskEngine::UpdateAccountRiskLimit, Update Order Counter, Product:{} Account:{} "
                                 "OrderRef:{} OrderStatus:{} OrderType:{} OrderCount:{}",
-                                OrderStatus.Product, OrderStatus.Account, OrderStatus.OrderRef, OrderStatus.OrderStatus, 
+                                OrderStatus.Product, OrderStatus.Account, OrderStatus.OrderRef, OrderStatus.OrderStatus,
                                 OrderStatus.OrderType, report.OrderCount);
         }
     }
 }
 
 
-void RiskEngine::UpdateStrategyPosition(const Message::TOrderStatus& status) 
+void RiskEngine::UpdateStrategyPosition(const Message::TOrderStatus& status)
 {
     if(status.EngineID == 0)
         return ;
     VirtualPositionKey key;
-    key.Account = status.Account;   
+    key.Account = status.Account;
     key.EngineID = status.EngineID;
     key.Ticker = status.Ticker;
 
@@ -1478,64 +1478,64 @@ void RiskEngine::UpdateStrategyPosition(const Message::TOrderStatus& status)
 
     Message::TRiskReport& strategyPos = it->second;
     // 现货买入/开多仓
-    if(status.OrderSide == Message::EOrderSide::EOPEN_LONG) 
+    if(status.OrderSide == Message::EOrderSide::EOPEN_LONG)
     {
-        strategyPos.LongVolume += status.TotalTradedVolume;  
-    } 
+        strategyPos.LongVolume += status.TotalTradedVolume;
+    }
     // 现货卖出/平多仓
     else if(status.OrderSide == Message::EOrderSide::ECLOSE_TD_LONG ||
         status.OrderSide == Message::EOrderSide::ECLOSE_YD_LONG ||
-        status.OrderSide == Message::EOrderSide::ECLOSE_LONG) 
+        status.OrderSide == Message::EOrderSide::ECLOSE_LONG)
     {
         strategyPos.LongVolume -= status.TotalTradedVolume;
     }
     // 开空仓
-    else if(status.OrderSide == Message::EOrderSide::EOPEN_SHORT) 
+    else if(status.OrderSide == Message::EOrderSide::EOPEN_SHORT)
     {
         strategyPos.ShortVolume += status.TotalTradedVolume;
     }
     // 买入平空仓
     else if(status.OrderSide == Message::EOrderSide::ECLOSE_TD_SHORT ||
         status.OrderSide == Message::EOrderSide::ECLOSE_YD_SHORT ||
-        status.OrderSide == Message::EOrderSide::ECLOSE_SHORT) 
+        status.OrderSide == Message::EOrderSide::ECLOSE_SHORT)
     {
         strategyPos.ShortVolume -= status.TotalTradedVolume;
     }
     // 担保品买入/融资买入
     else if(status.OrderSide == Message::EOrderSide::ESIDE_COLLATERAL_BUY ||
-        status.OrderSide == Message::EOrderSide::ESIDE_MARGIN_BUY) 
+        status.OrderSide == Message::EOrderSide::ESIDE_MARGIN_BUY)
     {
-        strategyPos.LongVolume += status.TotalTradedVolume;  
-    } 
+        strategyPos.LongVolume += status.TotalTradedVolume;
+    }
     // 担保品卖出/卖券还款
     else if(status.OrderSide == Message::EOrderSide::ESIDE_COLLATERAL_SELL ||
-        status.OrderSide == Message::EOrderSide::ESIDE_REPAY_MARGIN_BY_SELL) 
+        status.OrderSide == Message::EOrderSide::ESIDE_REPAY_MARGIN_BY_SELL)
     {
         strategyPos.LongVolume -= status.TotalTradedVolume;
     }
     // 融券卖出
-    else if(status.OrderSide == Message::EOrderSide::ESIDE_SHORT_SELL) 
+    else if(status.OrderSide == Message::EOrderSide::ESIDE_SHORT_SELL)
     {
         strategyPos.ShortVolume += status.TotalTradedVolume;
     }
     // 买券还券
-    else if(status.OrderSide == Message::EOrderSide::ESIDE_REPAY_STOCK_BY_BUY) 
+    else if(status.OrderSide == Message::EOrderSide::ESIDE_REPAY_STOCK_BY_BUY)
     {
         strategyPos.ShortVolume -= status.TotalTradedVolume;
     }
     // 现券还券
-    else if(status.OrderSide == Message::EOrderSide::ESIDE_REPAY_STOCK_DIRECT) 
+    else if(status.OrderSide == Message::EOrderSide::ESIDE_REPAY_STOCK_DIRECT)
     {
         strategyPos.LongVolume -= status.TotalTradedVolume;
         strategyPos.ShortVolume -= status.TotalTradedVolume;
     }
-    fmt::format_to_n(strategyPos.RiskID, sizeof(strategyPos.RiskID), "{}", m_XRiskJudgeConfig.RiskID);
-    fmt::format_to_n(strategyPos.UpdateTime, sizeof(strategyPos.UpdateTime), "{}", Utils::getCurrentTimeUs());
+    XRiskJudge::FormatToFixedBuffer(strategyPos.RiskID, "{}", m_XRiskJudgeConfig.RiskID);
+    XRiskJudge::FormatToFixedBuffer(strategyPos.UpdateTime, "{}", Utils::getCurrentTimeUs());
     // Update SQLite PositionLimitTable
     std::string SQL;
     std::string errorString;
     SQL = fmt::format("UPDATE PositionLimitTable SET RiskID='{}', LongVolume='{}', ShortVolume='{}', UpdateTime='{}' WHERE Account='{}' AND Ticker='{}' AND EngineID='{}';",
-                                strategyPos.RiskID, strategyPos.LongVolume, strategyPos.ShortVolume, strategyPos.UpdateTime, 
+                                strategyPos.RiskID, strategyPos.LongVolume, strategyPos.ShortVolume, strategyPos.UpdateTime,
                                 strategyPos.Account, strategyPos.Ticker, strategyPos.EngineID);
     m_RiskDBManager->UpdatePositionLimitTable(SQL, "UPDATE", &RiskEngine::sqlite3_callback_PositionLimit, errorString);
     FMTLOG(fmtlog::INF, "UpdateStrategyPosition Account:{} Ticker:{} EngineID:{} Long:{} Short:{} LongLimit:{} ShortLimit:{}",
@@ -1550,69 +1550,69 @@ void RiskEngine::UpdateStrategyPosition(const Message::TOrderStatus& status)
 void RiskEngine::UpdateAccountPosition(const Message::TOrderStatus& status)
 {
     VirtualPositionKey key;
-    key.Account = status.Account;   
+    key.Account = status.Account;
     key.Ticker = status.Ticker;
     key.EngineID = 0;
-    
+
     auto it = m_StrategyPositionLimitMap.find(key);
     if (it == m_StrategyPositionLimitMap.end())
         return ; // 未配置限制，通过
 
     Message::TRiskReport& accountPos = it->second;
     // 现货买入/开多仓
-    if(status.OrderSide == Message::EOrderSide::EOPEN_LONG) 
+    if(status.OrderSide == Message::EOrderSide::EOPEN_LONG)
     {
-        accountPos.LongVolume += status.TotalTradedVolume;  
-    } 
+        accountPos.LongVolume += status.TotalTradedVolume;
+    }
     // 现货卖出/平多仓
     else if(status.OrderSide == Message::EOrderSide::ECLOSE_TD_LONG ||
         status.OrderSide == Message::EOrderSide::ECLOSE_YD_LONG ||
-        status.OrderSide == Message::EOrderSide::ECLOSE_LONG) 
+        status.OrderSide == Message::EOrderSide::ECLOSE_LONG)
     {
         accountPos.LongVolume -= status.TotalTradedVolume;
     }
     // 开空仓
-    else if(status.OrderSide == Message::EOrderSide::EOPEN_SHORT) 
+    else if(status.OrderSide == Message::EOrderSide::EOPEN_SHORT)
     {
         accountPos.ShortVolume += status.TotalTradedVolume;
     }
     // 买入平空仓
     else if(status.OrderSide == Message::EOrderSide::ECLOSE_TD_SHORT ||
         status.OrderSide == Message::EOrderSide::ECLOSE_YD_SHORT ||
-        status.OrderSide == Message::EOrderSide::ECLOSE_SHORT) 
+        status.OrderSide == Message::EOrderSide::ECLOSE_SHORT)
     {
         accountPos.ShortVolume -= status.TotalTradedVolume;
     }
     // 担保品买入/融资买入
     else if(status.OrderSide == Message::EOrderSide::ESIDE_COLLATERAL_BUY ||
-        status.OrderSide == Message::EOrderSide::ESIDE_MARGIN_BUY) 
+        status.OrderSide == Message::EOrderSide::ESIDE_MARGIN_BUY)
     {
         accountPos.LongVolume += status.TotalTradedVolume;
-    } 
+    }
     // 担保品卖出/卖券还款
     else if(status.OrderSide == Message::EOrderSide::ESIDE_COLLATERAL_SELL ||
-        status.OrderSide == Message::EOrderSide::ESIDE_REPAY_MARGIN_BY_SELL) 
+        status.OrderSide == Message::EOrderSide::ESIDE_REPAY_MARGIN_BY_SELL)
     {
         accountPos.LongVolume -= status.TotalTradedVolume;
     }
     // 融券卖出
-    else if(status.OrderSide == Message::EOrderSide::ESIDE_SHORT_SELL) 
+    else if(status.OrderSide == Message::EOrderSide::ESIDE_SHORT_SELL)
     {
         accountPos.ShortVolume += status.TotalTradedVolume;
     }
     // 买券还券
-    else if(status.OrderSide == Message::EOrderSide::ESIDE_REPAY_STOCK_BY_BUY) 
+    else if(status.OrderSide == Message::EOrderSide::ESIDE_REPAY_STOCK_BY_BUY)
     {
         accountPos.ShortVolume -= status.TotalTradedVolume;
     }
     // 现券还券
-    else if(status.OrderSide == Message::EOrderSide::ESIDE_REPAY_STOCK_DIRECT) 
+    else if(status.OrderSide == Message::EOrderSide::ESIDE_REPAY_STOCK_DIRECT)
     {
         accountPos.LongVolume -= status.TotalTradedVolume;
         accountPos.ShortVolume -= status.TotalTradedVolume;
     }
-    fmt::format_to_n(accountPos.RiskID, sizeof(accountPos.RiskID), "{}", m_XRiskJudgeConfig.RiskID);
-    fmt::format_to_n(accountPos.UpdateTime, sizeof(accountPos.UpdateTime), "{}", Utils::getCurrentTimeUs());
+    XRiskJudge::FormatToFixedBuffer(accountPos.RiskID, "{}", m_XRiskJudgeConfig.RiskID);
+    XRiskJudge::FormatToFixedBuffer(accountPos.UpdateTime, "{}", Utils::getCurrentTimeUs());
     // Update SQLite PositionLimitTable
     std::string SQL;
     std::string errorString;
@@ -1633,7 +1633,7 @@ void RiskEngine::UpdateAccountPosition(const Message::TOrderStatus& status)
 void RiskEngine::PrintOrderRequest(const Message::TOrderRequest& req, const std::string& op)
 {
     FMTLOG(fmtlog::DBG, "RiskEngine::PrintOrderRequest, {} Product:{} Account:{} Ticker:{} OrderType:{} Direction:{} Offset:{} "
-                        "Price:{} Volume:{} EngineID:{} RiskStatus:{} SendTime:{} UpdateTime:{} ErrorID:{} ErrorMsg:{} RiskID:{}", 
+                        "Price:{} Volume:{} EngineID:{} RiskStatus:{} SendTime:{} UpdateTime:{} ErrorID:{} ErrorMsg:{} RiskID:{}",
             op, req.Product, req.Account, req.Ticker, req.OrderType, req.Direction, req.Offset, req.Price, req.Volume, req.EngineID, req.RiskStatus,
             req.SendTime, req.UpdateTime, req.ErrorID, req.ErrorMsg, req.RiskID);
 }
@@ -1654,7 +1654,7 @@ bool RiskEngine::QueryRiskLimit()
     }
     else
     {
-        for(auto& riskLimit : m_RiskLimitMap) 
+        for(auto& riskLimit : m_RiskLimitMap)
         {
             Message::PackMessage msg;
             msg.MessageType = Message::EMessageType::ERiskReport;
@@ -1666,17 +1666,17 @@ bool RiskEngine::QueryRiskLimit()
     return ret;
 }
 
-bool RiskEngine::QueryPositionLimit() 
+bool RiskEngine::QueryPositionLimit()
 {
     std::string errorString;
     bool ret = m_RiskDBManager->QueryPositionLimit(&RiskEngine::sqlite3_callback_PositionLimit, errorString);
-    if(!ret) 
+    if(!ret)
     {
         FMTLOG(fmtlog::WRN, "QueryPositionLimit failed, {}", errorString);
-    } 
-    else 
+    }
+    else
     {
-        for(auto& positionLimit : m_StrategyPositionLimitMap) 
+        for(auto& positionLimit : m_StrategyPositionLimitMap)
         {
             Message::PackMessage msg;
             msg.MessageType = Message::EMessageType::ERiskReport;
@@ -1692,13 +1692,13 @@ bool RiskEngine::QueryAccountLocked()
 {
     std::string errorString;
     bool ret = m_RiskDBManager->QueryAccountLocked(&RiskEngine::sqlite3_callback_AccountLocked, errorString);
-    if(!ret) 
+    if(!ret)
     {
         FMTLOG(fmtlog::WRN, "QueryAccountLocked failed, {}", errorString);
-    } 
-    else 
+    }
+    else
     {
-        for(auto& accountLocked : m_AccountLockedMap) 
+        for(auto& accountLocked : m_AccountLockedMap)
         {
             Message::PackMessage msg;
             msg.MessageType = Message::EMessageType::ERiskReport;
@@ -1711,7 +1711,7 @@ bool RiskEngine::QueryAccountLocked()
 }
 
 
-int RiskEngine::sqlite3_callback_RiskLimit(void *data, int argc, char **argv, char **azColName) 
+int RiskEngine::sqlite3_callback_RiskLimit(void *data, int argc, char **argv, char **azColName)
 {
     static std::string riskID;
     static std::string account;
@@ -1724,43 +1724,43 @@ int RiskEngine::sqlite3_callback_RiskLimit(void *data, int argc, char **argv, ch
     static int orderLimit = 0;
     static int orderCancelLimit = 0;
     static std::string trader;
-    for(int i = 0; i < argc; i++) 
+    for(int i = 0; i < argc; i++)
     {
         FMTLOG(fmtlog::INF, "RiskEngine::sqlite3_callback_RiskLimit, {} {} = {}", (char*)data, azColName[i], argv[i]);
         std::string col = azColName[i];
         std::string val = argv[i] ? argv[i] : "";
-        if(col == "RiskID") 
+        if(col == "RiskID")
             riskID = val;
-        else if(col == "Account") 
+        else if(col == "Account")
             account = val;
-        else if(col == "Ticker") 
+        else if(col == "Ticker")
             ticker = val;
-        else if(col == "BusinessType") 
+        else if(col == "BusinessType")
             businessType = std::stoull(val);
-        else if(col == "FlowLimit") 
+        else if(col == "FlowLimit")
             flowLimit = std::stoi(val);
-        else if(col == "CancelCount") 
+        else if(col == "CancelCount")
             cancelCount = std::stoi(val);
-        else if(col == "CancelLimit") 
+        else if(col == "CancelLimit")
             cancelLimit = std::stoi(val);
-        else if(col == "OrderCount") 
+        else if(col == "OrderCount")
             orderCount = std::stoi(val);
-        else if(col == "OrderLimit") 
+        else if(col == "OrderLimit")
             orderLimit = std::stoi(val);
-        else if(col == "OrderCancelLimit") 
+        else if(col == "OrderCancelLimit")
             orderCancelLimit = std::stoi(val);
-        else if(col == "Trader") 
+        else if(col == "Trader")
             trader = val;
-        else if(col == "UpdateTime") 
+        else if(col == "UpdateTime")
         {
             RiskLimitKey key;
             key.Account = account;
             key.Ticker = ticker;
             auto& limit = m_RiskLimitMap[key];
             limit.ReportType = Message::ERiskReportType::ERISK_LIMIT;
-            fmt::format_to_n(limit.RiskID, sizeof(limit.RiskID), "{}", riskID);
-            fmt::format_to_n(limit.Account, sizeof(limit.Account), "{}", account);
-            fmt::format_to_n(limit.Ticker, sizeof(limit.Ticker), "{}", ticker);
+            XRiskJudge::FormatToFixedBuffer(limit.RiskID, "{}", riskID);
+            XRiskJudge::FormatToFixedBuffer(limit.Account, "{}", account);
+            XRiskJudge::FormatToFixedBuffer(limit.Ticker, "{}", ticker);
             limit.BusinessType = businessType;
             limit.FlowLimit = flowLimit;
             limit.CancelCount = cancelCount;
@@ -1768,15 +1768,15 @@ int RiskEngine::sqlite3_callback_RiskLimit(void *data, int argc, char **argv, ch
             limit.OrderCount = orderCount;
             limit.OrderLimit = orderLimit;
             limit.OrderCancelLimit = orderCancelLimit;
-            fmt::format_to_n(limit.Trader, sizeof(limit.Trader), "{}", trader);
-            fmt::format_to_n(limit.UpdateTime, sizeof(limit.UpdateTime), "{}", Utils::getCurrentTimeUs());
+            XRiskJudge::FormatToFixedBuffer(limit.Trader, "{}", trader);
+            XRiskJudge::FormatToFixedBuffer(limit.UpdateTime, "{}", Utils::getCurrentTimeUs());
         }
     }
     return 0;
 }
 
 
-int RiskEngine::sqlite3_callback_PositionLimit(void *data, int argc, char **argv, char **azColName) 
+int RiskEngine::sqlite3_callback_PositionLimit(void *data, int argc, char **argv, char **azColName)
 {
     static std::string riskID;
     static std::string account;
@@ -1790,36 +1790,36 @@ int RiskEngine::sqlite3_callback_PositionLimit(void *data, int argc, char **argv
     static int exposureLowerLimit = 0;
     static int exposureUpperLimit = 0;
     static std::string trader;
-    for(int i = 0; i < argc; i++) 
+    for(int i = 0; i < argc; i++)
     {
         FMTLOG(fmtlog::INF, "RiskEngine::sqlite3_callback_PositionLimit, {} {} = {}", (char*)data, azColName[i], argv[i]);
         std::string col = azColName[i];
         std::string val = argv[i] ? argv[i] : "";
-        if(col == "RiskID") 
+        if(col == "RiskID")
             riskID = val;
-        else if(col == "Account") 
+        else if(col == "Account")
             account = val;
-        else if(col == "Ticker") 
+        else if(col == "Ticker")
             ticker = val;
-        else if(col == "EngineID") 
+        else if(col == "EngineID")
             engineID = std::stoull(val);
-        else if(col == "BusinessType") 
+        else if(col == "BusinessType")
             businessType = std::stoull(val);
-        else if(col == "LongVolume") 
+        else if(col == "LongVolume")
             longVolume = std::stoi(val);
-        else if(col == "ShortVolume") 
+        else if(col == "ShortVolume")
             shortVolume = std::stoi(val);
-        else if(col == "LongLimit") 
+        else if(col == "LongLimit")
             longLimit = std::stoi(val);
-        else if(col == "ShortLimit") 
+        else if(col == "ShortLimit")
             shortLimit = std::stoi(val);
-        else if(col == "ExposureLowerLimit") 
+        else if(col == "ExposureLowerLimit")
             exposureLowerLimit = std::stoi(val);
-        else if(col == "ExposureUpperLimit") 
+        else if(col == "ExposureUpperLimit")
             exposureUpperLimit = std::stoi(val);
-        else if(col == "Trader") 
+        else if(col == "Trader")
             trader = val;
-        else if(col == "UpdateTime") 
+        else if(col == "UpdateTime")
         {
             VirtualPositionKey key;
             key.Account = account;
@@ -1827,9 +1827,9 @@ int RiskEngine::sqlite3_callback_PositionLimit(void *data, int argc, char **argv
             key.EngineID = engineID;
             auto& pos = m_StrategyPositionLimitMap[key];
             pos.ReportType = Message::ERiskReportType::ERISK_POSITION_LIMIT;
-            fmt::format_to_n(pos.RiskID, sizeof(pos.RiskID), "{}", riskID);
-            fmt::format_to_n(pos.Account, sizeof(pos.Account), "{}", account);
-            fmt::format_to_n(pos.Ticker, sizeof(pos.Ticker), "{}", ticker);
+            XRiskJudge::FormatToFixedBuffer(pos.RiskID, "{}", riskID);
+            XRiskJudge::FormatToFixedBuffer(pos.Account, "{}", account);
+            XRiskJudge::FormatToFixedBuffer(pos.Ticker, "{}", ticker);
             pos.EngineID = engineID;
             pos.BusinessType = businessType;
             pos.LongVolume = longVolume;
@@ -1838,14 +1838,14 @@ int RiskEngine::sqlite3_callback_PositionLimit(void *data, int argc, char **argv
             pos.ShortLimit = shortLimit;
             pos.ExposureLowerLimit = exposureLowerLimit;
             pos.ExposureUpperLimit = exposureUpperLimit;
-            fmt::format_to_n(pos.Trader, sizeof(pos.Trader), "{}", trader);
-            fmt::format_to_n(pos.UpdateTime, sizeof(pos.UpdateTime), "{}", Utils::getCurrentTimeUs());
+            XRiskJudge::FormatToFixedBuffer(pos.Trader, "{}", trader);
+            XRiskJudge::FormatToFixedBuffer(pos.UpdateTime, "{}", Utils::getCurrentTimeUs());
         }
     }
     return 0;
 }
 
-int RiskEngine::sqlite3_callback_AccountLocked(void *data, int argc, char **argv, char **azColName) 
+int RiskEngine::sqlite3_callback_AccountLocked(void *data, int argc, char **argv, char **azColName)
 {
     static std::string riskID;
     static std::string account;
@@ -1853,37 +1853,37 @@ int RiskEngine::sqlite3_callback_AccountLocked(void *data, int argc, char **argv
     static uint32_t businessType = 0;
     static int lockSide = 0;
     static std::string trader;
-    for(int i = 0; i < argc; i++) 
+    for(int i = 0; i < argc; i++)
     {
         FMTLOG(fmtlog::INF, "RiskEngine::sqlite3_callback_AccountLocked, {} {} = {}", (char*)data, azColName[i], argv[i]);
         std::string col = azColName[i];
         std::string val = argv[i] ? argv[i] : "";
-        if(col == "RiskID") 
+        if(col == "RiskID")
             riskID = val;
-        else if(col == "Account") 
+        else if(col == "Account")
             account = val;
-        else if(col == "Ticker") 
+        else if(col == "Ticker")
             ticker = val;
-        else if(col == "BusinessType") 
+        else if(col == "BusinessType")
             businessType = std::stoull(val);
-        else if(col == "LockSide") 
+        else if(col == "LockSide")
             lockSide = std::stoi(val);
-        else if(col == "Trader") 
+        else if(col == "Trader")
             trader = val;
-        else if(col == "UpdateTime") 
+        else if(col == "UpdateTime")
         {
             RiskLimitKey key;
             key.Account = account;
             key.Ticker = ticker;
             auto& accountLocked = m_AccountLockedMap[key];
             accountLocked.ReportType = Message::ERiskReportType::ERISK_ACCOUNT_LOCKED;
-            fmt::format_to_n(accountLocked.RiskID, sizeof(accountLocked.RiskID), "{}", riskID);
-            fmt::format_to_n(accountLocked.Account, sizeof(accountLocked.Account), "{}", account);
-            fmt::format_to_n(accountLocked.Ticker, sizeof(accountLocked.Ticker), "{}", ticker);
+            XRiskJudge::FormatToFixedBuffer(accountLocked.RiskID, "{}", riskID);
+            XRiskJudge::FormatToFixedBuffer(accountLocked.Account, "{}", account);
+            XRiskJudge::FormatToFixedBuffer(accountLocked.Ticker, "{}", ticker);
             accountLocked.BusinessType = businessType;
             accountLocked.LockSide = lockSide;
-            fmt::format_to_n(accountLocked.Trader, sizeof(accountLocked.Trader), "{}", trader);
-            fmt::format_to_n(accountLocked.UpdateTime, sizeof(accountLocked.UpdateTime), "{}", Utils::getCurrentTimeUs());
+            XRiskJudge::FormatToFixedBuffer(accountLocked.Trader, "{}", trader);
+            XRiskJudge::FormatToFixedBuffer(accountLocked.UpdateTime, "{}", Utils::getCurrentTimeUs());
         }
     }
     return 0;
@@ -1904,7 +1904,7 @@ void RiskEngine::HandleRiskCommand(const Message::TCommand& command)
         {
             std::string errorString;
             bool ok = m_RiskDBManager->UpdateRiskLimitTable(sql, op, &RiskEngine::sqlite3_callback_RiskLimit, errorString);
-            fmt::format_to_n(RiskEvent.Event, sizeof(RiskEvent.Event), "{}", errorString);
+            XRiskJudge::FormatToFixedBuffer(RiskEvent.Event, "{}", errorString);
             // QueryRiskLimit();
         }
         {
@@ -1922,7 +1922,7 @@ void RiskEngine::HandleRiskCommand(const Message::TCommand& command)
         {
             std::string errorString;
             bool ok = m_RiskDBManager->UpdatePositionLimitTable(sql, op, &RiskEngine::sqlite3_callback_PositionLimit, errorString);
-            fmt::format_to_n(RiskEvent.Event, sizeof(RiskEvent.Event), "{}", errorString);
+            XRiskJudge::FormatToFixedBuffer(RiskEvent.Event, "{}", errorString);
             // QueryPositionLimit();
         }
         {
@@ -1940,7 +1940,7 @@ void RiskEngine::HandleRiskCommand(const Message::TCommand& command)
         {
             std::string errorString;
             bool ok = m_RiskDBManager->UpdateAccountLockedTable(sql, op, &RiskEngine::sqlite3_callback_AccountLocked, errorString);
-            fmt::format_to_n(RiskEvent.Event, sizeof(RiskEvent.Event), "{}", errorString);
+            XRiskJudge::FormatToFixedBuffer(RiskEvent.Event, "{}", errorString);
             // QueryAccountLocked();
         }
         {
@@ -1964,17 +1964,17 @@ bool RiskEngine::ParseUpdateRiskLimitCommand(const std::string& cmd, int cmdType
         std::vector<std::string> keyValue;
         Utils::Split(items[0], ":", keyValue);
         std::string RiskID = keyValue[1];
-        fmt::format_to_n(event.RiskID, sizeof(event.RiskID), "{}", RiskID);
+        XRiskJudge::FormatToFixedBuffer(event.RiskID, "{}", RiskID);
 
         keyValue.clear();
         Utils::Split(items[1], ":", keyValue);
         std::string Account = keyValue[1];
-        fmt::format_to_n(event.Account, sizeof(event.Account), "{}", Account);
+        XRiskJudge::FormatToFixedBuffer(event.Account, "{}", Account);
 
         keyValue.clear();
         Utils::Split(items[2], ":", keyValue);
         std::string Ticker = keyValue[1];
-        fmt::format_to_n(event.Ticker, sizeof(event.Ticker), "{}", Ticker);
+        XRiskJudge::FormatToFixedBuffer(event.Ticker, "{}", Ticker);
 
         keyValue.clear();
         Utils::Split(items[3], ":", keyValue);
@@ -2015,8 +2015,8 @@ bool RiskEngine::ParseUpdateRiskLimitCommand(const std::string& cmd, int cmdType
         Utils::Split(items[10], ":", keyValue);
         std::string Trader = keyValue[1];
 
-        fmt::format_to_n(event.Trader, sizeof(event.Trader), "{}", Trader);
-        fmt::format_to_n(event.UpdateTime, sizeof(event.UpdateTime), "{}", Utils::getCurrentTimeUs());
+        XRiskJudge::FormatToFixedBuffer(event.Trader, "{}", Trader);
+        XRiskJudge::FormatToFixedBuffer(event.UpdateTime, "{}", Utils::getCurrentTimeUs());
 
         RiskLimitKey key;
         key.Account = Account;
@@ -2047,7 +2047,7 @@ bool RiskEngine::ParseUpdateRiskLimitCommand(const std::string& cmd, int cmdType
             else
             {
                 ret = false;
-                fmt::format_to_n(event.Event, sizeof(event.Event), "Account={} and Ticker={} not found, invalid CmdType={}", Account, Ticker, cmdType);
+                XRiskJudge::FormatToFixedBuffer(event.Event, "Account={} and Ticker={} not found, invalid CmdType={}", Account, Ticker, cmdType);
                 FMTLOG(fmtlog::ERR, "RiskEngine::ParseUpdateRiskLimitCommand Account={} and Ticker={} not found, invalid CmdType={}", Account, Ticker, cmdType);
             }
         }
@@ -2082,8 +2082,8 @@ bool RiskEngine::ParseUpdateRiskLimitCommand(const std::string& cmd, int cmdType
     else
     {
         ret = false;
-        fmt::format_to_n(event.RiskID, sizeof(event.RiskID), "{}", m_XRiskJudgeConfig.RiskID);
-        fmt::format_to_n(event.Event, sizeof(event.Event), "invalid command:{}", cmd);
+        XRiskJudge::FormatToFixedBuffer(event.RiskID, "{}", m_XRiskJudgeConfig.RiskID);
+        XRiskJudge::FormatToFixedBuffer(event.Event, "invalid command:{}", cmd);
         FMTLOG(fmtlog::WRN, "RiskEngine::ParseUpdateRiskLimitCommand invalid command, {}", cmd);
     }
     return ret;
@@ -2100,17 +2100,17 @@ bool RiskEngine::ParseUpdatePositionLimitCommand(const std::string& cmd, int cmd
         std::vector<std::string> keyValue;
         Utils::Split(items[0], ":", keyValue);
         std::string RiskID = keyValue[1];
-        fmt::format_to_n(event.RiskID, sizeof(event.RiskID), "{}", RiskID);
+        XRiskJudge::FormatToFixedBuffer(event.RiskID, "{}", RiskID);
 
         keyValue.clear();
         Utils::Split(items[1], ":", keyValue);
         std::string Account = keyValue[1];
-        fmt::format_to_n(event.Account, sizeof(event.Account), "{}", Account);
+        XRiskJudge::FormatToFixedBuffer(event.Account, "{}", Account);
 
         keyValue.clear();
         Utils::Split(items[2], ":", keyValue);
         std::string Ticker = keyValue[1];
-        fmt::format_to_n(event.Ticker, sizeof(event.Ticker), "{}", Ticker);
+        XRiskJudge::FormatToFixedBuffer(event.Ticker, "{}", Ticker);
 
         keyValue.clear();
         Utils::Split(items[3], ":", keyValue);
@@ -2155,9 +2155,9 @@ bool RiskEngine::ParseUpdatePositionLimitCommand(const std::string& cmd, int cmd
         keyValue.clear();
         Utils::Split(items[11], ":", keyValue);
         std::string Trader = keyValue[1];
-        fmt::format_to_n(event.Trader, sizeof(event.Trader), "{}", Trader);
+        XRiskJudge::FormatToFixedBuffer(event.Trader, "{}", Trader);
 
-        fmt::format_to_n(event.UpdateTime, sizeof(event.UpdateTime), "{}", Utils::getCurrentTimeUs());
+        XRiskJudge::FormatToFixedBuffer(event.UpdateTime, "{}", Utils::getCurrentTimeUs());
 
         VirtualPositionKey key;
         key.Account = Account;
@@ -2189,7 +2189,7 @@ bool RiskEngine::ParseUpdatePositionLimitCommand(const std::string& cmd, int cmd
             else
             {
                 ret = false;
-                fmt::format_to_n(event.Event, sizeof(event.Event), "Account={} and Ticker={} and EngineID={} not found, invalid CmdType={}", Account, Ticker, EngineID, cmdType);
+                XRiskJudge::FormatToFixedBuffer(event.Event, "Account={} and Ticker={} and EngineID={} not found, invalid CmdType={}", Account, Ticker, EngineID, cmdType);
                 FMTLOG(fmtlog::ERR, "RiskEngine::ParseUpdatePositionLimitCommand Account={} and Ticker={} and EngineID={} not found, invalid CmdType={}", Account, Ticker, EngineID, cmdType);
             }
         }
@@ -2225,8 +2225,8 @@ bool RiskEngine::ParseUpdatePositionLimitCommand(const std::string& cmd, int cmd
     else
     {
         ret = false;
-        fmt::format_to_n(event.RiskID, sizeof(event.RiskID), "{}", m_XRiskJudgeConfig.RiskID);
-        fmt::format_to_n(event.Event, sizeof(event.Event), "invalid command:{}", cmd);
+        XRiskJudge::FormatToFixedBuffer(event.RiskID, "{}", m_XRiskJudgeConfig.RiskID);
+        XRiskJudge::FormatToFixedBuffer(event.Event, "invalid command:{}", cmd);
         FMTLOG(fmtlog::WRN, "RiskEngine::ParseUpdatePositionLimitCommand invalid command, {}", cmd);
     }
     return ret;
@@ -2243,17 +2243,17 @@ bool RiskEngine::ParseUpdateAccountLockedCommand(const std::string& cmd, int cmd
         std::vector<std::string> keyValue;
         Utils::Split(items[0], ":", keyValue);
         std::string RiskID = keyValue[1];
-        fmt::format_to_n(event.RiskID, sizeof(event.RiskID), "{}", RiskID);
+        XRiskJudge::FormatToFixedBuffer(event.RiskID, "{}", RiskID);
 
         keyValue.clear();
         Utils::Split(items[1], ":", keyValue);
         std::string Account = keyValue[1];
-        fmt::format_to_n(event.Account, sizeof(event.Account), "{}", Account);
+        XRiskJudge::FormatToFixedBuffer(event.Account, "{}", Account);
 
         keyValue.clear();
         Utils::Split(items[2], ":", keyValue);
         std::string Ticker = keyValue[1];
-        fmt::format_to_n(event.Ticker, sizeof(event.Ticker), "{}", Ticker);
+        XRiskJudge::FormatToFixedBuffer(event.Ticker, "{}", Ticker);
 
         keyValue.clear();
         Utils::Split(items[3], ":", keyValue);
@@ -2268,9 +2268,9 @@ bool RiskEngine::ParseUpdateAccountLockedCommand(const std::string& cmd, int cmd
         keyValue.clear();
         Utils::Split(items[5], ":", keyValue);
         std::string Trader = keyValue[1];
-        fmt::format_to_n(event.Trader, sizeof(event.Trader), "{}", Trader);
+        XRiskJudge::FormatToFixedBuffer(event.Trader, "{}", Trader);
 
-        fmt::format_to_n(event.UpdateTime, sizeof(event.UpdateTime), "{}", Utils::getCurrentTimeUs());
+        XRiskJudge::FormatToFixedBuffer(event.UpdateTime, "{}", Utils::getCurrentTimeUs());
 
         RiskLimitKey key;
         key.Account = Account;
@@ -2301,7 +2301,7 @@ bool RiskEngine::ParseUpdateAccountLockedCommand(const std::string& cmd, int cmd
             else
             {
                 ret = false;
-                fmt::format_to_n(event.Event, sizeof(event.Event), "Account={} and Ticker={} not found, invalid CmdType={}", Account, Ticker, cmdType);
+                XRiskJudge::FormatToFixedBuffer(event.Event, "Account={} and Ticker={} not found, invalid CmdType={}", Account, Ticker, cmdType);
                 FMTLOG(fmtlog::ERR, "RiskEngine::ParseUpdateAccountLockedCommand Account={} and Ticker={} not found, invalid CmdType={}", Account, Ticker, cmdType);
             }
         }
@@ -2337,8 +2337,8 @@ bool RiskEngine::ParseUpdateAccountLockedCommand(const std::string& cmd, int cmd
     else
     {
         ret = false;
-        fmt::format_to_n(event.RiskID, sizeof(event.RiskID), "{}", m_XRiskJudgeConfig.RiskID);
-        fmt::format_to_n(event.Event, sizeof(event.Event), "invalid command:{}", cmd);
+        XRiskJudge::FormatToFixedBuffer(event.RiskID, "{}", m_XRiskJudgeConfig.RiskID);
+        XRiskJudge::FormatToFixedBuffer(event.Event, "invalid command:{}", cmd);
         FMTLOG(fmtlog::WRN, "RiskEngine::ParseUpdateAccountLockedCommand invalid command, {}", cmd);
     }
     return ret;
@@ -2384,7 +2384,7 @@ void RiskEngine::UpdateAppStatus(const std::string& cmd, Message::TAppStatus& Ap
     {
         AppLogPath = p;
     }
-    sprintf(AppStatus.StartScript, "nohup %s > %s/%s_%s_run.log 2>&1 &", 
+    sprintf(AppStatus.StartScript, "nohup %s > %s/%s_%s_run.log 2>&1 &",
                     cmd.c_str(), AppLogPath.c_str(), AppName.c_str(), AppStatus.Account);
     strncpy(AppStatus.Status, "Start", sizeof(AppStatus.Status));
     std::string CommitID = std::string(APP_COMMITID) + ":" + SHMSERVER_COMMITID;

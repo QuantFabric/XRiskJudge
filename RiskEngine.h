@@ -15,6 +15,7 @@
 #include "PackMessage.hpp"
 #include "Util.hpp"
 #include "FMTLogger.hpp"
+#include "SafeUtils.hpp"
 #include "YMLConfig.hpp"
 #include "RiskJudgeServer.hpp"
 #include "HPPackClient.h"
@@ -160,20 +161,20 @@ private:
     HPPackClient* m_HPPackClient;
     Utils::XRiskJudgeConfig m_XRiskJudgeConfig;
     std::thread* m_WorkThread; 
-    phmap::node_hash_map<std::string,Message::TOrderStatus,phmap::priv::hash_default_hash<std::string>> m_PendingOrderMap;// OrderRef, TOrderStatus
-    phmap::node_hash_map<std::string,std::list<Message::TOrderStatus>,phmap::priv::hash_default_hash<std::string>> m_TickerPendingOrderListMap; // Ticker, OrderList
-    phmap::flat_hash_map<std::string,int,phmap::priv::hash_default_hash<std::string>> m_OrderCancelledCounterMap;// OrderRef, Cancelled Count
-    phmap::flat_hash_map<std::string,int,phmap::priv::hash_default_hash<std::string>> m_AccountFlowLimitedMap;// Account, flow counter
+    phmap::flat_hash_map<std::string,Message::TOrderStatus,phmap::Hash<std::string>,phmap::EqualTo<std::string>> m_PendingOrderMap;// OrderRef, TOrderStatus
+    phmap::flat_hash_map<std::string,std::list<Message::TOrderStatus>,phmap::Hash<std::string>,phmap::EqualTo<std::string>> m_TickerPendingOrderListMap; // Ticker, OrderList
+    phmap::flat_hash_map<std::string,int,phmap::Hash<std::string>,phmap::EqualTo<std::string>> m_OrderCancelledCounterMap;// OrderRef, Cancelled Count
+    phmap::flat_hash_map<std::string,int,phmap::Hash<std::string>,phmap::EqualTo<std::string>> m_AccountFlowLimitedMap;// Account, flow counter
     RiskDBManager* m_RiskDBManager;
     std::string m_Command;
     // 风控限制：Account, Ticker -> TRiskReport
-    static phmap::node_hash_map<RiskLimitKey,Message::TRiskReport,RiskLimitKeyHash> m_RiskLimitMap;
+    static phmap::flat_hash_map<RiskLimitKey,Message::TRiskReport,RiskLimitKeyHash> m_RiskLimitMap;
     // 策略持仓上限：Account, Ticker, EngineID -> TRiskReport
-    static phmap::node_hash_map<VirtualPositionKey,Message::TRiskReport,VirtualPositionKeyHash> m_StrategyPositionLimitMap;
+    static phmap::flat_hash_map<VirtualPositionKey,Message::TRiskReport,VirtualPositionKeyHash> m_StrategyPositionLimitMap;
     // 风控限制：Account, Ticker -> TRiskReport
-    static phmap::node_hash_map<RiskLimitKey,Message::TRiskReport,RiskLimitKeyHash> m_AccountLockedMap;
+    static phmap::flat_hash_map<RiskLimitKey,Message::TRiskReport,RiskLimitKeyHash> m_AccountLockedMap;
 
-    phmap::flat_hash_map<std::string,Utils::TickerProperty,phmap::priv::hash_default_hash<std::string>> m_TickerPropertyMap;
+    phmap::flat_hash_map<std::string,Utils::TickerProperty,phmap::Hash<std::string>,phmap::EqualTo<std::string>> m_TickerPropertyMap;
 };
 
 

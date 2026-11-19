@@ -44,21 +44,21 @@ void HPPackServer::Start()
     char errorString[256] = {0};
     if (::HP_Server_Start(m_pServer, m_ServerIP.c_str(), m_ServerPort))
     {
-        fmt::format_to_n(errorString, sizeof(errorString), "HPPackServer::Start listen to {}:{} successed", m_ServerIP, m_ServerPort);
+        XRiskJudge::FormatToFixedBuffer(errorString, "HPPackServer::Start listen to {}:{} successed", m_ServerIP, m_ServerPort);
         FMTLOG(fmtlog::INF, "HPPackServer::Start listen to {}:{} successed", m_ServerIP, m_ServerPort);
         message.EventLog.Level = Message::EEventLogLevel::EINFO;
     }
     else
     {
-        fmt::format_to_n(errorString, sizeof(errorString), "HPPackServer::Start listen to {}:{} failed, error code:{} error massage:{}",
+        XRiskJudge::FormatToFixedBuffer(errorString, "HPPackServer::Start listen to {}:{} failed, error code:{} error massage:{}",
                         m_ServerIP, m_ServerPort, ::HP_Client_GetLastError(m_pServer), HP_Client_GetLastErrorDesc(m_pServer));
         FMTLOG(fmtlog::WRN, "HPPackServer::Start listen to {}:{} failed, error code:{} error massage:{}",
                 m_ServerIP, m_ServerPort, ::HP_Client_GetLastError(m_pServer), HP_Client_GetLastErrorDesc(m_pServer));
         message.EventLog.Level = Message::EEventLogLevel::EWARNING;
     }
-    fmt::format_to_n(message.EventLog.App, sizeof(message.EventLog.App), "{}", APP_NAME);
-    fmt::format_to_n(message.EventLog.Event, sizeof(message.EventLog.Event), "{}", errorString);
-    fmt::format_to_n(message.EventLog.UpdateTime, sizeof(message.EventLog.UpdateTime), "{}", Utils::getCurrentTimeUs());
+    XRiskJudge::FormatToFixedBuffer(message.EventLog.App, "{}", APP_NAME);
+    XRiskJudge::FormatToFixedBuffer(message.EventLog.Event, "{}", errorString);
+    XRiskJudge::FormatToFixedBuffer(message.EventLog.UpdateTime, "{}", Utils::getCurrentTimeUs());
     while(!m_RequestMessageQueue.Push(message));
 }
 
@@ -79,11 +79,11 @@ void HPPackServer::SendData(HP_CONNID dwConnID, const unsigned char *pBuffer, in
         memset(&message, 0, sizeof(message));
         message.MessageType = Message::EMessageType::EEventLog;
         message.EventLog.Level = Message::EEventLogLevel::EWARNING;
-        fmt::format_to_n(message.EventLog.App, sizeof(message.EventLog.App), "{}", APP_NAME);
-        fmt::format_to_n(message.EventLog.Event, sizeof(message.EventLog.Event), 
+        XRiskJudge::FormatToFixedBuffer(message.EventLog.App, "{}", APP_NAME);
+        XRiskJudge::FormatToFixedBuffer(message.EventLog.Event,
                         "HPPackServer::SendData failed, sys error:{}, error code:{}, error message:{}",
                         SYS_GetLastErrorStr(), HP_Client_GetLastError(m_pServer), HP_Client_GetLastErrorDesc(m_pServer));
-        fmt::format_to_n(message.EventLog.UpdateTime, sizeof(message.EventLog.UpdateTime), "{}", Utils::getCurrentTimeUs());
+        XRiskJudge::FormatToFixedBuffer(message.EventLog.UpdateTime, "{}", Utils::getCurrentTimeUs());
         while(!m_RequestMessageQueue.Push(message));
     }
 }
@@ -140,7 +140,7 @@ En_HP_HandleResult __stdcall HPPackServer::OnReceive(HP_Server pSender, HP_CONNI
         if (it != m_sConnections.end())
         {
             it->second.ClientType = message.LoginRequest.ClientType;
-            fmt::format_to_n(it->second.Account, sizeof(it->second.Account), "{}", message.LoginRequest.Account);
+            XRiskJudge::FormatToFixedBuffer(it->second.Account, "{}", message.LoginRequest.Account);
             FMTLOG(fmtlog::INF, "HPPackServer::OnReceive accept an new Client login from {}:{}, Account:{}",
                     szAddress, usPort, message.LoginRequest.Account);
             // EventLog
@@ -148,12 +148,12 @@ En_HP_HandleResult __stdcall HPPackServer::OnReceive(HP_Server pSender, HP_CONNI
             memset(&msg, 0, sizeof(msg));
             msg.MessageType = Message::EMessageType::EEventLog;
             msg.EventLog.Level = Message::EEventLogLevel::EINFO;
-            fmt::format_to_n(msg.EventLog.Account, sizeof(msg.EventLog.Account), "{}", it->second.Account);
-            fmt::format_to_n(msg.EventLog.App, sizeof(msg.EventLog.App), "{}", APP_NAME);
-            fmt::format_to_n(msg.EventLog.Event, sizeof(msg.EventLog.Event), 
+            XRiskJudge::FormatToFixedBuffer(msg.EventLog.Account, "{}", it->second.Account);
+            XRiskJudge::FormatToFixedBuffer(msg.EventLog.App, "{}", APP_NAME);
+            XRiskJudge::FormatToFixedBuffer(msg.EventLog.Event,
                             "HPPackServer::OnReceive accept an new Client login from {}:{}, Account:{}",
                             szAddress, usPort, message.LoginRequest.Account);
-            fmt::format_to_n(msg.EventLog.UpdateTime, sizeof(msg.EventLog.UpdateTime), "{}",  Utils::getCurrentTimeUs());
+            XRiskJudge::FormatToFixedBuffer(msg.EventLog.UpdateTime, "{}",  Utils::getCurrentTimeUs());
             while(!m_RequestMessageQueue.Push(msg));
         }
     }
@@ -171,24 +171,24 @@ En_HP_HandleResult __stdcall HPPackServer::OnClose(HP_Server pSender, HP_CONNID 
     auto it = m_sConnections.find(dwConnID);
     if (it != m_sConnections.end())
     {
-        FMTLOG(fmtlog::WRN, "HPPackServer::OnClose have an connection dwConnID:{} Account:{} from {}:{} closed",  
+        FMTLOG(fmtlog::WRN, "HPPackServer::OnClose have an connection dwConnID:{} Account:{} from {}:{} closed",
                 dwConnID, it->second.Account, szAddress, usPort);
         // EventLog
         Message::PackMessage message;
         memset(&message, 0, sizeof(message));
         message.MessageType = Message::EMessageType::EEventLog;
         message.EventLog.Level = Message::EEventLogLevel::EWARNING;
-        fmt::format_to_n(message.EventLog.Account, sizeof(message.EventLog.Account), "{}",  it->second.Account);
-        fmt::format_to_n(message.EventLog.App, sizeof(message.EventLog.App), "{}",  APP_NAME);
-        fmt::format_to_n(message.EventLog.Event, sizeof(message.EventLog.Event), 
-                        "HPPackServer::OnClose have an connection dwConnID:{} Account:{} from {}:{} closed",  
+        XRiskJudge::FormatToFixedBuffer(message.EventLog.Account, "{}",  it->second.Account);
+        XRiskJudge::FormatToFixedBuffer(message.EventLog.App, "{}",  APP_NAME);
+        XRiskJudge::FormatToFixedBuffer(message.EventLog.Event,
+                        "HPPackServer::OnClose have an connection dwConnID:{} Account:{} from {}:{} closed",
                         dwConnID, it->second.Account, szAddress, usPort);
-        fmt::format_to_n(message.EventLog.UpdateTime, sizeof(message.EventLog.UpdateTime), "{}",  Utils::getCurrentTimeUs());
+        XRiskJudge::FormatToFixedBuffer(message.EventLog.UpdateTime, "{}",  Utils::getCurrentTimeUs());
         while(!m_RequestMessageQueue.Push(message));
 
         m_sConnections.erase(dwConnID);
     }
-    
+
     return HR_OK;
 }
 
